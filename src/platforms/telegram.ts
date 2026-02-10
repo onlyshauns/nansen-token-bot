@@ -3,7 +3,7 @@ import { parseUserInput, isTokenQuery } from '../core/parser.js';
 import { resolveToken } from '../core/resolver.js';
 import { buildTokenReport } from '../core/lookup.js';
 import { toTelegramHTML } from './render.js';
-import { getKey, setKey, deleteKey, getDmOnly, setDmOnly, incrementQueryCount, getStats } from '../storage/keyStore.js';
+import { getKey, setKey, deleteKey, getDmOnly, setDmOnly, incrementQueryCount, getStats, allowUser, revokeUser, findAllowedKey, getAllowedUsers } from '../storage/keyStore.js';
 import { getClient, validateKey } from '../nansen/pool.js';
 import {
   checkRateLimit,
@@ -40,6 +40,9 @@ export async function startTelegram(token: string): Promise<void> {
         '\u2022 <code>0x6982...</code> \u2014 looks up by contract address\n\n' +
         'Commands:\n' +
         '/token &lt;query&gt; \u2014 look up a token\n' +
+        '/allow \u2014 reply to a user to grant them access (groups)\n' +
+        '/revoke \u2014 reply to a user to remove access (groups)\n' +
+        '/allowlist \u2014 see who has access in this group\n' +
         '/dmonly \u2014 toggle DM-only mode\n' +
         '/mystats \u2014 see your usage stats\n' +
         '/removekey \u2014 remove your API key',
@@ -191,6 +194,116 @@ export async function startTelegram(token: string): Promise<void> {
     );
   });
 
+  // /allow command — grant a user access to your API key in this group
+  bot.command('allow', async (ctx) => {
+    const userId = ctx.from?.id;
+    if (!userId) return;
+
+    // Only works in groups
+    if (ctx.chat?.type === 'private') {
+      await ctx.reply('This command only works in groups.');
+      return;
+    }
+
+    // Must have own key
+    if (!getKey(userId)) {
+      await ctx.reply(ONBOARDING_MSG, { parse_mode: 'HTML', link_preview_options: { is_disabled: true } });
+      return;
+    }
+
+    // Must reply to someone's message
+    const target = ctx.message?.reply_to_message?.from;
+    if (!target || target.is_bot) {
+      await ctx.reply(
+        'Reply to a user\'s message with <code>/allow</code> to grant them access to your API key in this group.',
+        { parse_mode: 'HTML' }
+      );
+      return;
+    }
+
+    const groupId = ctx.chat!.id;
+    allowUser(userId, groupId, target.id);
+
+    const name = target.first_name + (target.last_name ? ' ' + target.last_name : '');
+    await ctx.reply(
+      `\u2705 <b>${escapeHtml(name)}</b> can now use your API key in this group.\n\n` +
+      'Use <code>/revoke</code> (reply to their message) to remove access.',
+      { parse_mode: 'HTML' }
+    );
+    console.log(`[Telegram] User ${userId} allowed ${target.id} in group ${groupId}`);
+  });
+
+  // /revoke command — remove a user's access to your API key in this group
+  bot.command('revoke', async (ctx) => {
+    const userId = ctx.from?.id;
+    if (!userId) return;
+
+    if (ctx.chat?.type === 'private') {
+      await ctx.reply('This command only works in groups.');
+      return;
+    }
+
+    if (!getKey(userId)) {
+      await ctx.reply(ONBOARDING_MSG, { parse_mode: 'HTML', link_preview_options: { is_disabled: true } });
+      return;
+    }
+
+    const target = ctx.message?.reply_to_message?.from;
+    if (!target || target.is_bot) {
+      await ctx.reply(
+        'Reply to a user\'s message with <code>/revoke</code> to remove their access.',
+        { parse_mode: 'HTML' }
+      );
+      return;
+    }
+
+    const groupId = ctx.chat!.id;
+    revokeUser(userId, groupId, target.id);
+
+    const name = target.first_name + (target.last_name ? ' ' + target.last_name : '');
+    await ctx.reply(
+      `\u274C <b>${escapeHtml(name)}</b>'s access has been revoked in this group.`,
+      { parse_mode: 'HTML' }
+    );
+    console.log(`[Telegram] User ${userId} revoked ${target.id} in group ${groupId}`);
+  });
+
+  // /allowlist command — show who has access in this group
+  bot.command('allowlist', async (ctx) => {
+    const userId = ctx.from?.id;
+    if (!userId) return;
+
+    if (ctx.chat?.type === 'private') {
+      await ctx.reply('This command only works in groups.');
+      return;
+    }
+
+    if (!getKey(userId)) {
+      await ctx.reply(ONBOARDING_MSG, { parse_mode: 'HTML', link_preview_options: { is_disabled: true } });
+      return;
+    }
+
+    const groupId = ctx.chat!.id;
+    const allowed = getAllowedUsers(userId, groupId);
+
+    if (allowed.length === 0) {
+      await ctx.reply(
+        '\uD83D\uDCCB <b>No users allowed in this group.</b>\n\n' +
+        'Reply to someone\'s message with <code>/allow</code> to grant access.',
+        { parse_mode: 'HTML' }
+      );
+      return;
+    }
+
+    const lines = allowed.map((id) => `\u2022 <code>${id}</code>`);
+    await ctx.reply(
+      `\uD83D\uDCCB <b>Allowed users in this group (${allowed.length}):</b>\n\n` +
+      lines.join('\n') + '\n\n' +
+      'Reply to a message with <code>/revoke</code> to remove access.',
+      { parse_mode: 'HTML' }
+    );
+  });
+
   // /token command
   bot.command('token', async (ctx) => {
     const query = ctx.match;
@@ -321,15 +434,25 @@ async function executeTokenQuery(
 
 /**
  * Look up the user's API key and return a NansenClient, or null if not set.
+ * In groups, also checks if another user has granted them access via /allow.
  */
 function getNansenForUser(ctx: Context): NansenClient | null {
   const userId = ctx.from?.id;
   if (!userId) return null;
 
-  const apiKey = getKey(userId);
-  if (!apiKey) return null;
+  // 1. User's own key always takes priority
+  const ownKey = getKey(userId);
+  if (ownKey) return getClient(ownKey);
 
-  return getClient(apiKey);
+  // 2. In groups, check if someone allowed this user
+  const chatType = ctx.chat?.type;
+  if (chatType && chatType !== 'private') {
+    const groupId = ctx.chat!.id;
+    const allowedKey = findAllowedKey(userId, groupId);
+    if (allowedKey) return getClient(allowedKey);
+  }
+
+  return null;
 }
 
 async function handleTokenQuery(ctx: Context, rawQuery: string, nansen: NansenClient): Promise<void> {
@@ -409,6 +532,13 @@ function splitMessage(text: string, maxLength: number): string[] {
   }
 
   return chunks;
+}
+
+/**
+ * Escape HTML special chars for safe Telegram rendering.
+ */
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 /**

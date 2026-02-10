@@ -13,6 +13,8 @@ interface UserConfig {
   dmOnly: boolean;
   queryCount: number;
   lastQueryAt?: string; // ISO timestamp
+  /** Users allowed to use this key in groups: { groupId: [userId, ...] } */
+  allowedUsers?: Record<string, number[]>;
 }
 
 /** Raw file format — values may be old (plain string) or new (UserConfig) */
@@ -142,4 +144,72 @@ export function getStats(userId: number): { queryCount: number; lastQueryAt?: st
     lastQueryAt: config.lastQueryAt,
     dmOnly: config.dmOnly,
   };
+}
+
+// ============================================
+// Allowed Users (group access sharing)
+// ============================================
+
+/**
+ * Grant a user access to use the owner's API key in a specific group.
+ */
+export function allowUser(ownerId: number, groupId: number, targetUserId: number): void {
+  const data = load();
+  const config = data[String(ownerId)];
+  if (!config) return;
+
+  if (!config.allowedUsers) config.allowedUsers = {};
+  const gid = String(groupId);
+  if (!config.allowedUsers[gid]) config.allowedUsers[gid] = [];
+
+  if (!config.allowedUsers[gid].includes(targetUserId)) {
+    config.allowedUsers[gid].push(targetUserId);
+  }
+
+  save(data);
+}
+
+/**
+ * Revoke a user's access to the owner's API key in a specific group.
+ */
+export function revokeUser(ownerId: number, groupId: number, targetUserId: number): void {
+  const data = load();
+  const config = data[String(ownerId)];
+  if (!config?.allowedUsers) return;
+
+  const gid = String(groupId);
+  const list = config.allowedUsers[gid];
+  if (!list) return;
+
+  config.allowedUsers[gid] = list.filter((id) => id !== targetUserId);
+  if (config.allowedUsers[gid].length === 0) delete config.allowedUsers[gid];
+
+  save(data);
+}
+
+/**
+ * Find an API key that a user is allowed to use in a specific group.
+ * Returns the owner's API key if found, null otherwise.
+ */
+export function findAllowedKey(userId: number, groupId: number): string | null {
+  const data = load();
+
+  for (const config of Object.values(data)) {
+    const gid = String(groupId);
+    if (config.allowedUsers?.[gid]?.includes(userId)) {
+      return config.apiKey;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Get the list of allowed users for a specific group, owned by a specific user.
+ */
+export function getAllowedUsers(ownerId: number, groupId: number): number[] {
+  const data = load();
+  const config = data[String(ownerId)];
+  if (!config?.allowedUsers) return [];
+  return config.allowedUsers[String(groupId)] || [];
 }

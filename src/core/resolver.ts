@@ -32,6 +32,55 @@ const CHAIN_TO_PLATFORM: Record<string, string> = Object.fromEntries(
 );
 
 /**
+ * Native tokens that don't have contract addresses on CoinGecko.
+ * Map to their wrapped equivalents that Nansen supports.
+ */
+const NATIVE_TOKEN_MAP: Record<string, ResolvedToken> = {
+  ethereum: {
+    name: 'Ethereum',
+    symbol: 'ETH',
+    chain: 'ethereum',
+    address: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+  },
+  bitcoin: {
+    name: 'Bitcoin',
+    symbol: 'BTC',
+    chain: 'ethereum',
+    address: '0x2260fac5e5542a773aa44fbcfedf7c193bc2c599', // WBTC
+  },
+  solana: {
+    name: 'Solana',
+    symbol: 'SOL',
+    chain: 'solana',
+    address: 'So11111111111111111111111111111111111111112',
+  },
+  binancecoin: {
+    name: 'BNB',
+    symbol: 'BNB',
+    chain: 'bnb',
+    address: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+  },
+  avalanche: {
+    name: 'Avalanche',
+    symbol: 'AVAX',
+    chain: 'avalanche',
+    address: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+  },
+  matic: {
+    name: 'Polygon',
+    symbol: 'POL',
+    chain: 'polygon',
+    address: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+  },
+  fantom: {
+    name: 'Fantom',
+    symbol: 'FTM',
+    chain: 'fantom',
+    address: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+  },
+};
+
+/**
  * Resolve a parsed user input to a concrete token with chain + address.
  * Uses CoinGecko search API (free, no key needed) for symbol lookups.
  * For contract addresses, uses CoinGecko contract lookup.
@@ -68,6 +117,16 @@ async function resolveBySymbol(parsed: ParsedInput): Promise<ResolvedToken> {
 
   // Now get the full coin data to find contract addresses
   for (const coin of candidates) {
+    // Check if this is a native token (ETH, BTC, SOL, BNB, etc.)
+    const nativeToken = NATIVE_TOKEN_MAP[coin.id];
+    if (nativeToken) {
+      // If user specified a chain, respect it only if it matches
+      const wantedChain = parsed.chainHint || parsed.inferredChain;
+      if (!wantedChain || wantedChain === nativeToken.chain) {
+        return { ...nativeToken };
+      }
+    }
+
     try {
       const detail = await getCoinDetail(coin.id);
       if (!detail) continue;

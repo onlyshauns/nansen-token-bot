@@ -1,5 +1,5 @@
 import { Bot, Context, NextFunction } from 'grammy';
-import { parseUserInput, isTokenQuery } from '../core/parser.js';
+import { parseUserInput, isTokenQuery, extractTokenQuery } from '../core/parser.js';
 import { resolveToken } from '../core/resolver.js';
 import { buildTokenReport } from '../core/lookup.js';
 import { toTelegramHTML } from './render.js';
@@ -341,6 +341,9 @@ export async function startTelegram(token: string): Promise<void> {
     // Not a token query — pass to the next handler (personality replies)
     if (!isTokenQuery(text)) return next();
 
+    // Extract the actual token query (handles "tell me about $PEPE on solana" etc.)
+    const query = extractTokenQuery(text) || text;
+
     const userId = ctx.from?.id;
     if (!userId) return;
 
@@ -348,7 +351,7 @@ export async function startTelegram(token: string): Promise<void> {
     const guardResult = await runSecurityChecks(ctx, userId);
     if (!guardResult.ok) return;
 
-    await executeTokenQuery(ctx, text, guardResult.nansen!, userId);
+    await executeTokenQuery(ctx, query, guardResult.nansen!, userId);
   });
 
   // ============================================

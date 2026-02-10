@@ -101,5 +101,42 @@ export function isTokenQuery(text: string): boolean {
   const first = trimmed.split(/\s+/)[0];
   if (first.length >= 32 && SOLANA_ADDRESS_RE.test(first)) return true;
   if (TRON_ADDRESS_RE.test(first)) return true;
+  // Also match $SYMBOL anywhere in the message (e.g. "tell me about $PEPE")
+  if (DOLLAR_SYMBOL_RE.test(trimmed)) return true;
   return false;
+}
+
+const DOLLAR_SYMBOL_RE = /\$[A-Za-z]{2,10}(?:\s|$)/;
+
+/**
+ * Extract a token query from a message that may contain surrounding text.
+ * e.g. "tell me about $PEPE on solana" → "$PEPE solana"
+ * Returns null if no token query found.
+ */
+export function extractTokenQuery(text: string): string | null {
+  const trimmed = text.trim();
+
+  // Direct queries: starts with $ or is a contract address
+  if (trimmed.startsWith('$') && trimmed.length >= 2) return trimmed;
+  const first = trimmed.split(/\s+/)[0];
+  if (EVM_ADDRESS_RE.test(first)) return trimmed;
+  if (first.length >= 32 && SOLANA_ADDRESS_RE.test(first)) return trimmed;
+  if (TRON_ADDRESS_RE.test(first)) return trimmed;
+
+  // Extract $SYMBOL from surrounding text
+  const match = trimmed.match(/(\$[A-Za-z]{2,10})/);
+  if (!match) return null;
+
+  const symbol = match[1];
+
+  // Check if there's a chain hint anywhere in the text
+  const words = trimmed.split(/\s+/);
+  for (const word of words) {
+    const lower = word.toLowerCase().replace(/^\$/, '');
+    if (CHAIN_ALIASES[lower] && `$${lower.toUpperCase()}` !== symbol.toUpperCase()) {
+      return `${symbol} ${lower}`;
+    }
+  }
+
+  return symbol;
 }

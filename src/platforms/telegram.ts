@@ -1,4 +1,4 @@
-import { Bot, Context } from 'grammy';
+import { Bot, Context, NextFunction } from 'grammy';
 import { parseUserInput, isTokenQuery } from '../core/parser.js';
 import { resolveToken } from '../core/resolver.js';
 import { buildTokenReport } from '../core/lookup.js';
@@ -13,6 +13,10 @@ import {
   markQueryStart,
   markQueryEnd,
 } from '../security/rateLimiter.js';
+import { config } from '../config.js';
+import { AnthropicClient } from '../llm/client.js';
+import { generatePersonalityReply } from '../llm/personality.js';
+import { checkLlmRateLimit, recordLlmCall } from '../llm/rateLimiter.js';
 
 import type { NansenClient } from '../nansen/client.js';
 
@@ -323,7 +327,7 @@ export async function startTelegram(token: string): Promise<void> {
   });
 
   // Auto-detect $SYMBOL and CA in messages
-  bot.on('message:text', async (ctx) => {
+  bot.on('message:text', async (ctx, next) => {
     let text = ctx.message.text;
     // Skip commands
     if (text.startsWith('/')) return;
@@ -334,8 +338,8 @@ export async function startTelegram(token: string): Promise<void> {
       text = text.replace(`@${botUsername}`, '').trim();
     }
 
-    // Only respond to messages that look like token queries
-    if (!isTokenQuery(text)) return;
+    // Not a token query — pass to the next handler (personality replies)
+    if (!isTokenQuery(text)) return next();
 
     const userId = ctx.from?.id;
     if (!userId) return;
@@ -346,6 +350,72 @@ export async function startTelegram(token: string): Promise<void> {
 
     await executeTokenQuery(ctx, text, guardResult.nansen!, userId);
   });
+
+  // ============================================
+  // AI Personality Replies (reply-to-bot detection)
+  // ============================================
+
+  const anthropicKey = config.anthropicApiKey;
+  if (anthropicKey) {
+    const anthropic = new AnthropicClient(anthropicKey);
+    console.log('[Telegram] AI personality enabled');
+
+    bot.on('message:text', async (ctx) => {
+      // Skip commands
+      if (ctx.message.text.startsWith('/')) return;
+
+      // Only respond to replies to the bot's own messages
+      const repliedTo = ctx.message.reply_to_message;
+      if (!repliedTo) return;
+
+      // Check if the replied-to message is from the bot
+      const botId = ctx.me.id;
+      if (repliedTo.from?.id !== botId) return;
+
+      // Rate limit check (silently skip if exceeded)
+      const userId = ctx.from?.id;
+      if (!userId) return;
+      if (!checkLlmRateLimit(userId)) return;
+
+      // Extract context
+      const botMessageText = repliedTo.text || repliedTo.caption || '';
+      const userMessageText = ctx.message.text;
+      const userName = ctx.from.first_name || 'anon';
+
+      if (!botMessageText || !userMessageText) return;
+
+      // Record the call for rate limiting
+      recordLlmCall(userId);
+
+      // Show typing indicator
+      try {
+        await ctx.api.sendChatAction(ctx.chat!.id, 'typing');
+      } catch { /* ignore */ }
+
+      // Generate and send reply
+      const reply = await generatePersonalityReply(anthropic, {
+        botMessageText,
+        userMessageText,
+        userName,
+      });
+
+      if (reply) {
+        try {
+          await ctx.reply(reply, {
+            parse_mode: 'HTML',
+            reply_parameters: { message_id: ctx.message.message_id },
+          });
+        } catch {
+          // Fallback without HTML parsing if the LLM produced invalid HTML
+          await ctx.reply(reply, {
+            reply_parameters: { message_id: ctx.message.message_id },
+          });
+        }
+      }
+    });
+  } else {
+    console.log('[Telegram] AI personality disabled (no ANTHROPIC_API_KEY)');
+  }
 
   bot.catch((err) => {
     console.error('[Telegram] Bot error:', err);

@@ -5,6 +5,7 @@ export const config = {
   telegramBotToken: optional('TELEGRAM_BOT_TOKEN'),
   discordBotToken: optional('DISCORD_BOT_TOKEN'),
   discordClientId: optional('DISCORD_CLIENT_ID'),
+  anthropicApiKey: optional('ANTHROPIC_API_KEY'),
 };
 
 function optional(key: string): string | undefined {

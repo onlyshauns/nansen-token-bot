@@ -33,9 +33,16 @@ export async function startTelegram(token: string, nansen: NansenClient): Promis
 
   // Auto-detect $SYMBOL and CA in messages
   bot.on('message:text', async (ctx) => {
-    const text = ctx.message.text;
+    let text = ctx.message.text;
     // Skip commands
     if (text.startsWith('/')) return;
+
+    // In groups, also respond to messages that mention the bot
+    const botUsername = ctx.me.username;
+    if (botUsername && text.includes(`@${botUsername}`)) {
+      text = text.replace(`@${botUsername}`, '').trim();
+    }
+
     // Only respond to messages that look like token queries
     if (!isTokenQuery(text)) return;
     await handleTokenQuery(ctx, text, nansen);
@@ -60,18 +67,24 @@ async function handleTokenQuery(ctx: Context, rawQuery: string, nansen: NansenCl
 
   try {
     // Resolve token
+    console.log(`[Telegram] Resolving "${parsed.query}"...`);
     const token = await resolveToken(parsed);
+    console.log(`[Telegram] Resolved: ${token.symbol} on ${token.chain}`);
 
     // Show typing while fetching data
     await ctx.api.sendChatAction(ctx.chat!.id, 'typing');
 
     // Build report
+    console.log(`[Telegram] Building report...`);
     const report = await buildTokenReport(token, nansen);
+    console.log(`[Telegram] Report built, rendering...`);
 
     // Render and send
     const html = toTelegramHTML(report);
     await sendLongMessage(ctx, html);
+    console.log(`[Telegram] Message sent for ${token.symbol}`);
   } catch (error) {
+    console.error(`[Telegram] Error for "${parsed.query}":`, error);
     const message = error instanceof Error ? error.message : 'Unknown error';
     await ctx.reply(
       `\u274C Could not look up "${parsed.query}"\n\n${message}\n\nTry using the contract address directly.`,

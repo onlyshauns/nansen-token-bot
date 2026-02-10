@@ -19,6 +19,26 @@ export interface FlowSegment {
   walletCount: number;
 }
 
+export interface SmartMoneyBuySell {
+  boughtVolumeUsd: number;
+  soldVolumeUsd: number;
+  netFlowUsd: number;
+  buyerCount: number;
+  sellerCount: number;
+}
+
+export interface TopTrader {
+  label: string;
+  volumeUsd: number;
+  side: 'BUY' | 'SELL';
+}
+
+export interface SmartMoneySection {
+  buySell: SmartMoneyBuySell | null;
+  topBuyers: TopTrader[];
+  topSellers: TopTrader[];
+}
+
 export interface TokenReport {
   token: ResolvedToken;
 
@@ -34,6 +54,9 @@ export interface TokenReport {
 
   // Holder flows
   flows: FlowSegment[];
+
+  // Smart money
+  smartMoney: SmartMoneySection;
 
   // Links
   nansenUrl: string;

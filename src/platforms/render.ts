@@ -1,5 +1,5 @@
 import { EmbedBuilder } from 'discord.js';
-import type { TokenReport, FlowSegment } from '../core/types.js';
+import type { TokenReport, FlowSegment, SmartMoneySection, TopTrader } from '../core/types.js';
 
 // ============================================
 // Formatting Helpers
@@ -60,7 +60,7 @@ function formatPriceChange(pct: number | null): string {
 }
 
 const FLOW_EMOJI: Record<string, string> = {
-  'Smart Traders': '\uD83E\uDDE0',  // 🧠
+  'Smart Traders': '\uD83E\uDD13',  // 🤓
   'Whales': '\uD83D\uDC0B',          // 🐋
   'Public Figures': '\uD83D\uDC64',  // 👤
   'Exchanges': '\uD83C\uDFE6',       // 🏦
@@ -69,7 +69,13 @@ const FLOW_EMOJI: Record<string, string> = {
 };
 
 function formatFlowLine(flow: FlowSegment): string {
-  const emoji = FLOW_EMOJI[flow.name] || '•';
+  const emoji = FLOW_EMOJI[flow.name] || '\u2022';
+
+  // Show N/A if no data for this segment
+  if (flow.walletCount === 0 && flow.netFlowUsd === 0) {
+    return `${emoji} ${flow.name}: N/A`;
+  }
+
   const direction = flow.netFlowUsd >= 0 ? 'IN' : 'OUT';
   const dirEmoji = flow.netFlowUsd >= 0 ? '\u2B06\uFE0F' : '\u2B07\uFE0F'; // ⬆️ / ⬇️
   const ratio = flow.avgFlowUsd !== 0
@@ -77,6 +83,77 @@ function formatFlowLine(flow: FlowSegment): string {
     : '0.0';
 
   return `${emoji} ${flow.name}: ${formatUsd(Math.abs(flow.netFlowUsd))} ${direction} ${dirEmoji} (${ratio}x avg, ${flow.walletCount}w)`;
+}
+
+// ============================================
+// Smart Money Formatting
+// ============================================
+
+function formatSmartMoneyTelegram(sm: SmartMoneySection): string[] {
+  const lines: string[] = [];
+  lines.push('<b>\uD83E\uDD13 Smart Money DEX (24h)</b>');
+
+  // Buy/Sell ratio
+  if (sm.buySell) {
+    const bs = sm.buySell;
+    lines.push(`\uD83D\uDFE2 Buying: ${formatUsd(bs.boughtVolumeUsd)} (${bs.buyerCount} traders)`);
+    lines.push(`\uD83D\uDD34 Selling: ${formatUsd(bs.soldVolumeUsd)} (${bs.sellerCount} traders)`);
+
+    const netEmoji = bs.netFlowUsd >= 0 ? '\uD83D\uDFE2' : '\uD83D\uDD34'; // 🟢 / 🔴
+    const sentiment = bs.netFlowUsd >= 0 ? 'bullish' : 'bearish';
+    const netSign = bs.netFlowUsd >= 0 ? '+' : '';
+    lines.push(`${netEmoji} Net: ${netSign}${formatUsd(bs.netFlowUsd)} (${sentiment})`);
+  }
+
+  // Top Buyers
+  if (sm.topBuyers.length > 0) {
+    lines.push('');
+    lines.push('<b>\uD83D\uDFE2 Top Buyers</b>');
+    for (let i = 0; i < sm.topBuyers.length; i++) {
+      const t = sm.topBuyers[i];
+      lines.push(`${i + 1}. ${t.label} \u2014 ${formatUsd(t.volumeUsd)}`);
+    }
+  }
+
+  // Top Sellers
+  if (sm.topSellers.length > 0) {
+    lines.push('');
+    lines.push('<b>\uD83D\uDD34 Top Sellers</b>');
+    for (let i = 0; i < sm.topSellers.length; i++) {
+      const t = sm.topSellers[i];
+      lines.push(`${i + 1}. ${t.label} \u2014 ${formatUsd(t.volumeUsd)}`);
+    }
+  }
+
+  return lines;
+}
+
+function formatSmartMoneyDiscord(sm: SmartMoneySection): string {
+  const lines: string[] = [];
+
+  if (sm.buySell) {
+    const bs = sm.buySell;
+    lines.push(`\uD83D\uDFE2 Buying: ${formatUsd(bs.boughtVolumeUsd)} (${bs.buyerCount} traders)`);
+    lines.push(`\uD83D\uDD34 Selling: ${formatUsd(bs.soldVolumeUsd)} (${bs.sellerCount} traders)`);
+    const netEmoji = bs.netFlowUsd >= 0 ? '\uD83D\uDFE2' : '\uD83D\uDD34';
+    const sentiment = bs.netFlowUsd >= 0 ? 'bullish' : 'bearish';
+    const netSign = bs.netFlowUsd >= 0 ? '+' : '';
+    lines.push(`${netEmoji} Net: ${netSign}${formatUsd(bs.netFlowUsd)} (${sentiment})`);
+  }
+
+  return lines.join('\n');
+}
+
+function formatTradersDiscord(traders: TopTrader[], side: 'BUY' | 'SELL'): string {
+  return traders.map((t, i) => {
+    return `${i + 1}. ${t.label} \u2014 ${formatUsd(t.volumeUsd)}`;
+  }).join('\n');
+}
+
+function hasSmartMoneyData(sm: SmartMoneySection): boolean {
+  const hasTraders = sm.topBuyers.length > 0 || sm.topSellers.length > 0;
+  const hasVolume = sm.buySell !== null && (sm.buySell.boughtVolumeUsd > 0 || sm.buySell.soldVolumeUsd > 0);
+  return hasTraders || hasVolume;
 }
 
 // ============================================
@@ -88,9 +165,11 @@ export function toTelegramHTML(report: TokenReport): string {
   const lines: string[] = [];
 
   // Header
-  const changeEmoji = (report.priceChange24h ?? 0) >= 0 ? '\u2B06\uFE0F' : '\u2B07\uFE0F';
-  lines.push(`<b>${t.name} (${t.symbol})</b> ${changeEmoji}`);
-  lines.push(`\uD83C\uDF10 ${capitalize(t.chain)}`);
+  const pct = report.priceChange24h;
+  const changeEmoji = (pct ?? 0) >= 0 ? '\uD83D\uDFE2' : '\uD83D\uDD34'; // 🟢 / 🔴
+  const changeStr = pct !== null ? ` ${changeEmoji} ${formatPriceChange(pct)} (24H)` : '';
+  lines.push(`<b>${t.name} (${t.symbol})</b>${changeStr}`);
+  lines.push(`${chainEmoji(t.chain)} ${capitalize(t.chain)}`);
   lines.push(`CA: <code>${t.address}</code>`);
   lines.push('');
 
@@ -99,17 +178,13 @@ export function toTelegramHTML(report: TokenReport): string {
     lines.push(`\uD83D\uDCB0 Price: ${formatPrice(report.priceUsd)}`);
   }
   if (report.marketCapUsd !== null) {
-    lines.push(`\uD83D\uDCCA Mcap: ${formatUsd(report.marketCapUsd)}`);
+    lines.push(`\uD83C\uDFDB\uFE0F Mcap: ${formatUsd(report.marketCapUsd)}`);
   }
   if (report.fdvUsd !== null && report.fdvUsd !== report.marketCapUsd) {
     lines.push(`\uD83D\uDC8E FDV: ${formatUsd(report.fdvUsd)}`);
   }
-  if (report.priceChange24h !== null) {
-    const emoji = report.priceChange24h >= 0 ? '\uD83D\uDFE2' : '\uD83D\uDD34'; // 🟢 / 🔴
-    lines.push(`${emoji} 24h: ${formatPriceChange(report.priceChange24h)}`);
-  }
   if (report.volume24hUsd !== null) {
-    lines.push(`\uD83D\uDCCA Vol: ${formatUsd(report.volume24hUsd)}`);
+    lines.push(`\uD83D\uDCC8 Vol: ${formatUsd(report.volume24hUsd)}`);
   }
   if (report.liquidityUsd !== null) {
     lines.push(`\uD83D\uDCA7 Liq: ${formatUsd(report.liquidityUsd)}`);
@@ -121,14 +196,42 @@ export function toTelegramHTML(report: TokenReport): string {
     lines.push(`\uD83D\uDC65 Holders: ${report.holderCount.toLocaleString()}`);
   }
 
-  // Flows
-  if (report.flows.length > 0) {
+  // Holder Flows (unified section: smart money + flow segments)
+  const hasSM = hasSmartMoneyData(report.smartMoney);
+
+  if (hasSM || report.flows.length > 0) {
     lines.push('');
-    lines.push('<b>\uD83D\uDCCA Holder Flows (24h)</b>');
+    lines.push('<b>\uD83D\uDD04 Holder Flows (24h)</b>');
+
+    // Flow segments (always show all, N/A if no data)
     for (const flow of report.flows) {
-      // Skip segments with 0 wallets
-      if (flow.walletCount === 0 && flow.netFlowUsd === 0) continue;
       lines.push(formatFlowLine(flow));
+    }
+
+    // Smart Money DEX buy/sell summary
+    if (hasSM && report.smartMoney.buySell) {
+      const bs = report.smartMoney.buySell;
+      lines.push(`\uD83D\uDCB1 DEX Activity: \uD83D\uDFE2 ${formatUsd(bs.boughtVolumeUsd)} bought / \uD83D\uDD34 ${formatUsd(bs.soldVolumeUsd)} sold`);
+    }
+
+    // Top Buyers
+    if (report.smartMoney.topBuyers.length > 0) {
+      lines.push('');
+      lines.push('<b>\uD83D\uDFE2 Top Buyers</b>');
+      for (let i = 0; i < report.smartMoney.topBuyers.length; i++) {
+        const t = report.smartMoney.topBuyers[i];
+        lines.push(`${i + 1}. ${t.label} \u2014 ${formatUsd(t.volumeUsd)}`);
+      }
+    }
+
+    // Top Sellers
+    if (report.smartMoney.topSellers.length > 0) {
+      lines.push('');
+      lines.push('<b>\uD83D\uDD34 Top Sellers</b>');
+      for (let i = 0; i < report.smartMoney.topSellers.length; i++) {
+        const t = report.smartMoney.topSellers[i];
+        lines.push(`${i + 1}. ${t.label} \u2014 ${formatUsd(t.volumeUsd)}`);
+      }
     }
   }
 
@@ -148,11 +251,15 @@ export function toDiscordEmbed(report: TokenReport): EmbedBuilder {
   const isPositive = (report.priceChange24h ?? 0) >= 0;
   const color = isPositive ? 0x00c853 : 0xff1744; // green / red
 
+  const pct = report.priceChange24h;
+  const changeEmoji = (pct ?? 0) >= 0 ? '\uD83D\uDFE2' : '\uD83D\uDD34';
+  const changeStr = pct !== null ? ` ${changeEmoji} ${formatPriceChange(pct)} (24H)` : '';
+
   const embed = new EmbedBuilder()
-    .setTitle(`${t.name} (${t.symbol})`)
+    .setTitle(`${t.name} (${t.symbol})${changeStr}`)
     .setURL(report.nansenUrl)
     .setColor(color)
-    .setDescription(`Chain: **${capitalize(t.chain)}**\nCA: \`${t.address}\``)
+    .setDescription(`${chainEmoji(t.chain)} **${capitalize(t.chain)}**\nCA: \`${t.address}\``)
     .setFooter({ text: 'Data from Nansen' })
     .setTimestamp();
 
@@ -161,14 +268,10 @@ export function toDiscordEmbed(report: TokenReport): EmbedBuilder {
     embed.addFields({ name: '\uD83D\uDCB0 Price', value: formatPrice(report.priceUsd), inline: true });
   }
   if (report.marketCapUsd !== null) {
-    embed.addFields({ name: '\uD83D\uDCCA Mcap', value: formatUsd(report.marketCapUsd), inline: true });
-  }
-  if (report.priceChange24h !== null) {
-    const emoji = report.priceChange24h >= 0 ? '\uD83D\uDFE2' : '\uD83D\uDD34';
-    embed.addFields({ name: `${emoji} 24h`, value: formatPriceChange(report.priceChange24h), inline: true });
+    embed.addFields({ name: '\uD83C\uDFDB\uFE0F Mcap', value: formatUsd(report.marketCapUsd), inline: true });
   }
   if (report.volume24hUsd !== null) {
-    embed.addFields({ name: '\uD83D\uDCCA Vol', value: formatUsd(report.volume24hUsd), inline: true });
+    embed.addFields({ name: '\uD83D\uDCC8 Vol', value: formatUsd(report.volume24hUsd), inline: true });
   }
   if (report.fdvUsd !== null) {
     embed.addFields({ name: '\uD83D\uDC8E FDV', value: formatUsd(report.fdvUsd), inline: true });
@@ -183,16 +286,53 @@ export function toDiscordEmbed(report: TokenReport): EmbedBuilder {
     embed.addFields({ name: '\uD83D\uDC65 Holders', value: report.holderCount.toLocaleString(), inline: true });
   }
 
-  // Flows (non-inline block)
-  if (report.flows.length > 0) {
-    const activeFlows = report.flows.filter(f => f.walletCount > 0 || f.netFlowUsd !== 0);
-    if (activeFlows.length > 0) {
-      const flowText = activeFlows.map(formatFlowLine).join('\n');
-      embed.addFields({ name: '\uD83D\uDCCA Holder Flows (24h)', value: flowText, inline: false });
+  // Holder Flows (unified: smart money + flow segments)
+  const hasSM = hasSmartMoneyData(report.smartMoney);
+
+  if (hasSM || report.flows.length > 0) {
+    const flowLines: string[] = [];
+
+    flowLines.push(...report.flows.map(formatFlowLine));
+
+    if (hasSM && report.smartMoney.buySell) {
+      const bs = report.smartMoney.buySell;
+      flowLines.push(`\uD83D\uDCB1 DEX Activity: \uD83D\uDFE2 ${formatUsd(bs.boughtVolumeUsd)} bought / \uD83D\uDD34 ${formatUsd(bs.soldVolumeUsd)} sold`);
+    }
+    embed.addFields({ name: '\uD83D\uDD04 Holder Flows (24h)', value: flowLines.join('\n'), inline: false });
+
+    if (report.smartMoney.topBuyers.length > 0) {
+      embed.addFields({
+        name: '\uD83D\uDFE2 Top Buyers',
+        value: formatTradersDiscord(report.smartMoney.topBuyers, 'BUY'),
+        inline: true,
+      });
+    }
+    if (report.smartMoney.topSellers.length > 0) {
+      embed.addFields({
+        name: '\uD83D\uDD34 Top Sellers',
+        value: formatTradersDiscord(report.smartMoney.topSellers, 'SELL'),
+        inline: true,
+      });
     }
   }
 
   return embed;
+}
+
+function chainEmoji(chain: string): string {
+  const map: Record<string, string> = {
+    ethereum: '\u2B20',    // ⬠ (ETH diamond)
+    solana: '\u2600\uFE0F', // ☀️
+    base: '\uD83D\uDD35',  // 🔵
+    bnb: '\uD83D\uDFE1',   // 🟡
+    arbitrum: '\uD83D\uDD37', // 🔷
+    polygon: '\uD83D\uDFE3', // 🟣
+    optimism: '\uD83D\uDD34', // 🔴
+    avalanche: '\uD83D\uDD3A', // 🔺
+    tron: '\u26A1',         // ⚡
+    fantom: '\uD83D\uDC7B', // 👻
+  };
+  return map[chain] || '\uD83D\uDD17'; // 🔗 fallback
 }
 
 function capitalize(s: string): string {

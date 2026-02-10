@@ -19,6 +19,34 @@ export interface NansenFlowIntelligence {
   fresh_wallets_wallet_count: number;
 }
 
+// Actual API response structure from /tgm/token-information
+export interface NansenTokenInfoResponse {
+  name?: string;
+  symbol?: string;
+  contract_address?: string;
+  logo?: string;
+  token_details?: {
+    token_deployment_date?: string;
+    website?: string;
+    market_cap_usd?: number;
+    fdv_usd?: number;
+    circulating_supply?: number;
+    total_supply?: number;
+  };
+  spot_metrics?: {
+    volume_total_usd?: number;
+    buy_volume_usd?: number;
+    sell_volume_usd?: number;
+    total_buys?: number;
+    total_sells?: number;
+    unique_buyers?: number;
+    unique_sellers?: number;
+    liquidity_usd?: number;
+    total_holders?: number;
+  };
+}
+
+// Flattened version for internal use
 export interface NansenTokenInfo {
   name?: string;
   symbol?: string;
@@ -33,24 +61,21 @@ export interface NansenTokenInfo {
   holder_count?: number;
   price?: number;
   price_change?: number;
-  unique_traders?: number;
+  unique_buyers?: number;
+  unique_sellers?: number;
+  total_buys?: number;
+  total_sells?: number;
 }
 
-export interface NansenScreenerItem {
-  token_address: string;
-  token_symbol: string;
-  chain: string;
-  price_usd: number;
-  price_change: number;
-  market_cap_usd: number;
-  volume: number;
-  netflow: number;
-  liquidity: number;
-  fdv: number;
-  token_age_days: number;
-  sectors: string[];
-  buy_volume: number;
-  sell_volume: number;
+export interface NansenSmartMoneyTrader {
+  address: string;
+  address_label: string;
+  bought_token_volume: number;
+  sold_token_volume: number;
+  token_trade_volume: number;
+  bought_volume_usd: number;
+  sold_volume_usd: number;
+  trade_volume_usd: number;
 }
 
 export class NansenClient {
@@ -64,6 +89,7 @@ export class NansenClient {
 
   /**
    * Get token information (name, price, market cap, volume, etc.)
+   * Flattens the nested API response into a simpler structure.
    */
   async getTokenInfo(
     chain: string,
@@ -71,12 +97,42 @@ export class NansenClient {
     timeframe: string = '1d'
   ): Promise<NansenTokenInfo | null> {
     try {
-      const response = await this.post<{ data: NansenTokenInfo }>('/tgm/token-information', {
+      const response = await this.post<{ data: NansenTokenInfoResponse }>('/tgm/token-information', {
         chain,
         token_address: tokenAddress,
         timeframe,
       });
-      return response.data || null;
+
+      const raw = response.data;
+      if (!raw) return null;
+
+      const td = raw.token_details;
+      const sm = raw.spot_metrics;
+
+      // Calculate price from market cap / circulating supply
+      let price: number | undefined;
+      if (td?.market_cap_usd && td?.circulating_supply && td.circulating_supply > 0) {
+        price = td.market_cap_usd / td.circulating_supply;
+      }
+
+      return {
+        name: raw.name,
+        symbol: raw.symbol,
+        logo_url: raw.logo,
+        deployment_date: td?.token_deployment_date,
+        market_cap: td?.market_cap_usd,
+        fdv: td?.fdv_usd,
+        volume: sm?.volume_total_usd,
+        buy_volume: sm?.buy_volume_usd,
+        sell_volume: sm?.sell_volume_usd,
+        liquidity: sm?.liquidity_usd,
+        holder_count: sm?.total_holders,
+        price,
+        unique_buyers: sm?.unique_buyers,
+        unique_sellers: sm?.unique_sellers,
+        total_buys: sm?.total_buys,
+        total_sells: sm?.total_sells,
+      };
     } catch (error) {
       console.error('[Nansen] getTokenInfo error:', error);
       return null;
@@ -108,36 +164,55 @@ export class NansenClient {
   }
 
   /**
-   * Get token screener data for a specific token.
-   * Since the screener returns a list, we filter for our target address.
+   * Get who bought/sold a token on DEX.
+   * Uses date range (yesterday to today) for 24h window.
    */
-  async getScreenerForToken(
+  async getWhoBoughtSold(
+    chain: string,
+    tokenAddress: string,
+    buyOrSell: 'BUY' | 'SELL'
+  ): Promise<NansenSmartMoneyTrader[]> {
+    try {
+      const today = new Date();
+      const yesterday = new Date(today);
+      yesterday.setDate(yesterday.getDate() - 1);
+
+      const toDate = today.toISOString().split('T')[0];
+      const fromDate = yesterday.toISOString().split('T')[0];
+
+      const response = await this.post<{ data: NansenSmartMoneyTrader[] }>('/tgm/who-bought-sold', {
+        chain,
+        token_address: tokenAddress,
+        date: { from: fromDate, to: toDate },
+        buy_or_sell: buyOrSell,
+        pagination: { page: 1, per_page: 10 },
+      });
+
+      return response.data || [];
+    } catch (error) {
+      console.error(`[Nansen] getWhoBoughtSold (${buyOrSell}) error:`, error);
+      return [];
+    }
+  }
+
+  /**
+   * Get top buyers and sellers for a token (parallel calls)
+   */
+  async getSmartMoneyBuySell(
     chain: string,
     tokenAddress: string
-  ): Promise<NansenScreenerItem | null> {
+  ): Promise<{ buyers: NansenSmartMoneyTrader[]; sellers: NansenSmartMoneyTrader[] } | null> {
     try {
-      const response = await this.post<{ data: NansenScreenerItem[] }>(
-        '/token-screener',
-        {
-          chains: [chain],
-          timeframe: '24h',
-          filters: {
-            volume: { min: 0 },
-            liquidity: { min: 0 },
-          },
-          pagination: { page: 1, per_page: 25 },
-          order_by: [{ field: 'volume', direction: 'DESC' }],
-        }
-      );
+      const [buyRes, sellRes] = await Promise.allSettled([
+        this.getWhoBoughtSold(chain, tokenAddress, 'BUY'),
+        this.getWhoBoughtSold(chain, tokenAddress, 'SELL'),
+      ]);
 
-      // Find our token in the results
-      const normalizedTarget = tokenAddress.toLowerCase();
-      const match = (response.data || []).find(
-        (item) => item.token_address?.toLowerCase() === normalizedTarget
-      );
-      return match || null;
+      const buyers = buyRes.status === 'fulfilled' ? buyRes.value : [];
+      const sellers = sellRes.status === 'fulfilled' ? sellRes.value : [];
+      return { buyers, sellers };
     } catch (error) {
-      console.error('[Nansen] getScreenerForToken error:', error);
+      console.error('[Nansen] getSmartMoneyBuySell error:', error);
       return null;
     }
   }

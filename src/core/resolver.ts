@@ -91,28 +91,27 @@ async function resolveBySymbol(parsed: ParsedInput): Promise<ResolvedToken> {
         continue;
       }
 
-      // No chain specified — pick the first available platform we support
-      // Prefer ethereum > solana > base > bnb > arbitrum > others
-      const preferredOrder = ['ethereum', 'solana', 'base', 'bnb', 'arbitrum', 'polygon', 'optimism', 'avalanche'];
-      for (const preferred of preferredOrder) {
-        const platKey = CHAIN_TO_PLATFORM[preferred];
-        if (!platKey) continue;
-        const addr = detail.platforms?.[platKey] ||
-          detail.detail_platforms?.[platKey]?.contract_address;
-        if (addr) {
-          return {
-            name: detail.name,
-            symbol: detail.symbol.toUpperCase(),
-            chain: preferred,
-            address: addr,
-          };
+      // No chain specified — use CoinGecko's platform order (primary chain listed first),
+      // then fall back to our preferred order for any remaining platforms
+      if (detail.detail_platforms) {
+        for (const platKey of Object.keys(detail.detail_platforms)) {
+          const chainName = PLATFORM_TO_CHAIN[platKey];
+          if (!chainName) continue;
+          const addr = detail.detail_platforms[platKey]?.contract_address;
+          if (addr) {
+            return {
+              name: detail.name,
+              symbol: detail.symbol.toUpperCase(),
+              chain: chainName,
+              address: addr,
+            };
+          }
         }
       }
 
-      // Fallback: any platform we recognize
+      // Fallback: any platform we recognize from the flat platforms map
       for (const [platKey, chainName] of Object.entries(PLATFORM_TO_CHAIN)) {
-        const addr = detail.platforms?.[platKey] ||
-          detail.detail_platforms?.[platKey]?.contract_address;
+        const addr = detail.platforms?.[platKey];
         if (addr) {
           return {
             name: detail.name,

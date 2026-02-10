@@ -4,23 +4,25 @@ import { startTelegram } from './platforms/telegram.js';
 import { startDiscord } from './platforms/discord.js';
 
 async function main() {
-  const nansen = new NansenClient(config.nansenApiKey);
   const tasks: Promise<void>[] = [];
 
+  // Telegram: users provide their own API key via /setkey
   if (config.telegramBotToken) {
-    tasks.push(startTelegram(config.telegramBotToken, nansen));
+    tasks.push(startTelegram(config.telegramBotToken));
   } else {
     console.warn('[Main] TELEGRAM_BOT_TOKEN not set — Telegram bot disabled');
   }
 
-  if (config.discordBotToken && config.discordClientId) {
+  // Discord: uses a shared API key from .env
+  if (config.discordBotToken && config.discordClientId && config.nansenApiKey) {
+    const nansen = new NansenClient(config.nansenApiKey);
     tasks.push(startDiscord(config.discordBotToken, config.discordClientId, nansen));
-  } else {
-    console.warn('[Main] DISCORD_BOT_TOKEN or DISCORD_CLIENT_ID not set — Discord bot disabled');
+  } else if (config.discordBotToken) {
+    console.warn('[Main] DISCORD_BOT_TOKEN set but missing DISCORD_CLIENT_ID or NANSEN_API_KEY — Discord bot disabled');
   }
 
   if (tasks.length === 0) {
-    console.error('[Main] No bot tokens configured. Set TELEGRAM_BOT_TOKEN and/or DISCORD_BOT_TOKEN in .env');
+    console.error('[Main] No bot tokens configured. Set TELEGRAM_BOT_TOKEN in .env');
     process.exit(1);
   }
 

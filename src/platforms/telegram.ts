@@ -1,24 +1,108 @@
 import { Bot, Context } from 'grammy';
-import type { NansenClient } from '../nansen/client.js';
 import { parseUserInput, isTokenQuery } from '../core/parser.js';
 import { resolveToken } from '../core/resolver.js';
 import { buildTokenReport } from '../core/lookup.js';
 import { toTelegramHTML } from './render.js';
+import { getKey, setKey, deleteKey } from '../storage/keyStore.js';
+import { getClient, validateKey } from '../nansen/pool.js';
 
-export async function startTelegram(token: string, nansen: NansenClient): Promise<void> {
+const ONBOARDING_MSG =
+  '\uD83D\uDD11 <b>You haven\'t set your Nansen API key yet!</b>\n\n' +
+  'To get started:\n' +
+  '1. Get your API key from <a href="https://app.nansen.ai">app.nansen.ai</a>\n' +
+  '2. Send: <code>/setkey YOUR_API_KEY</code>\n\n' +
+  'Your key is stored securely and only used for your queries.';
+
+export async function startTelegram(token: string): Promise<void> {
   const bot = new Bot(token);
 
   // /start command
   bot.command('start', async (ctx) => {
+    const userId = ctx.from?.id;
+    const hasKey = userId ? getKey(userId) !== null : false;
+
+    if (hasKey) {
+      await ctx.reply(
+        '<b>Nansen Token Lookup Bot</b> \u2705\n\n' +
+        'Your API key is configured. Send a token to look up:\n\n' +
+        '\u2022 <code>$PEPE</code> \u2014 looks up highest market cap match\n' +
+        '\u2022 <code>$PEPE SOL</code> \u2014 looks up PEPE on Solana\n' +
+        '\u2022 <code>0x6982...</code> \u2014 looks up by contract address\n\n' +
+        'Commands:\n' +
+        '/token &lt;query&gt; \u2014 look up a token\n' +
+        '/removekey \u2014 remove your API key',
+        { parse_mode: 'HTML', link_preview_options: { is_disabled: true } }
+      );
+    } else {
+      await ctx.reply(
+        '<b>Nansen Token Lookup Bot</b>\n\n' +
+        'Look up any token with on-chain intelligence from Nansen.\n\n' +
+        ONBOARDING_MSG,
+        { parse_mode: 'HTML', link_preview_options: { is_disabled: true } }
+      );
+    }
+  });
+
+  // /setkey command
+  bot.command('setkey', async (ctx) => {
+    const userId = ctx.from?.id;
+    if (!userId) return;
+
+    const apiKey = ctx.match?.trim();
+
+    // Delete the user's message containing the key (security)
+    try {
+      await ctx.api.deleteMessage(ctx.chat!.id, ctx.message!.message_id);
+    } catch {
+      // May fail in groups if bot isn't admin — that's OK
+    }
+
+    if (!apiKey) {
+      await ctx.reply(
+        'Usage: <code>/setkey YOUR_API_KEY</code>\n\n' +
+        'Get your key from <a href="https://app.nansen.ai">app.nansen.ai</a>',
+        { parse_mode: 'HTML', link_preview_options: { is_disabled: true } }
+      );
+      return;
+    }
+
+    await ctx.reply('\u23F3 Validating your API key...');
+
+    const valid = await validateKey(apiKey);
+    if (!valid) {
+      await ctx.reply(
+        '\u274C Invalid API key. Please check your key and try again.\n\n' +
+        'Get your key from <a href="https://app.nansen.ai">app.nansen.ai</a>',
+        { parse_mode: 'HTML', link_preview_options: { is_disabled: true } }
+      );
+      return;
+    }
+
+    setKey(userId, apiKey);
+    console.log(`[Telegram] API key set for user ${userId}`);
+
     await ctx.reply(
-      '<b>Nansen Token Lookup Bot</b>\n\n' +
-      'Send a token symbol or contract address to look up:\n\n' +
-      '\u2022 <code>$PEPE</code> — looks up highest market cap match\n' +
-      '\u2022 <code>$PEPE SOL</code> — looks up PEPE on Solana\n' +
-      '\u2022 <code>0x6982...</code> — looks up by contract address\n\n' +
-      'Or use /token &lt;query&gt;',
+      '\u2705 <b>API key saved!</b>\n\n' +
+      'You\'re all set. Try sending <code>$PEPE</code> or any token symbol.',
       { parse_mode: 'HTML' }
     );
+  });
+
+  // /removekey command
+  bot.command('removekey', async (ctx) => {
+    const userId = ctx.from?.id;
+    if (!userId) return;
+
+    const existing = getKey(userId);
+    if (!existing) {
+      await ctx.reply('You don\'t have an API key set.');
+      return;
+    }
+
+    deleteKey(userId);
+    console.log(`[Telegram] API key removed for user ${userId}`);
+
+    await ctx.reply('\u2705 Your API key has been removed.');
   });
 
   // /token command
@@ -28,6 +112,13 @@ export async function startTelegram(token: string, nansen: NansenClient): Promis
       await ctx.reply('Usage: /token $PEPE or /token 0x6982...');
       return;
     }
+
+    const nansen = getNansenForUser(ctx);
+    if (!nansen) {
+      await ctx.reply(ONBOARDING_MSG, { parse_mode: 'HTML', link_preview_options: { is_disabled: true } });
+      return;
+    }
+
     await handleTokenQuery(ctx, query, nansen);
   });
 
@@ -45,6 +136,13 @@ export async function startTelegram(token: string, nansen: NansenClient): Promis
 
     // Only respond to messages that look like token queries
     if (!isTokenQuery(text)) return;
+
+    const nansen = getNansenForUser(ctx);
+    if (!nansen) {
+      await ctx.reply(ONBOARDING_MSG, { parse_mode: 'HTML', link_preview_options: { is_disabled: true } });
+      return;
+    }
+
     await handleTokenQuery(ctx, text, nansen);
   });
 
@@ -54,6 +152,25 @@ export async function startTelegram(token: string, nansen: NansenClient): Promis
 
   console.log('[Telegram] Bot starting...');
   await bot.start();
+}
+
+// ============================================
+// Helpers
+// ============================================
+
+import type { NansenClient } from '../nansen/client.js';
+
+/**
+ * Look up the user's API key and return a NansenClient, or null if not set.
+ */
+function getNansenForUser(ctx: Context): NansenClient | null {
+  const userId = ctx.from?.id;
+  if (!userId) return null;
+
+  const apiKey = getKey(userId);
+  if (!apiKey) return null;
+
+  return getClient(apiKey);
 }
 
 async function handleTokenQuery(ctx: Context, rawQuery: string, nansen: NansenClient): Promise<void> {

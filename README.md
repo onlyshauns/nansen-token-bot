@@ -39,16 +39,6 @@ CA: 0x6982508145454ce325ddbe47a25d4ec3d2311933
 2. High Balance — $62.1K
 ```
 
-## Prerequisites
-
-You'll need your own API keys:
-
-| Key | Where to get it |
-|---|---|
-| **Nansen API Key** (required) | [app.nansen.ai](https://app.nansen.ai) |
-| **Telegram Bot Token** | Create via [@BotFather](https://t.me/BotFather) on Telegram |
-| **Discord Bot Token** (optional) | [Discord Developer Portal](https://discord.com/developers/applications) |
-
 ## Setup
 
 ```bash
@@ -59,21 +49,34 @@ cd nansen-token-bot
 # Install dependencies
 npm install
 
-# Configure your API keys
+# Add your Telegram bot token
 cp .env.example .env
-# Edit .env and add your keys
-```
+# Edit .env and set TELEGRAM_BOT_TOKEN
 
-## Running
-
-```bash
-# Development (with hot reload)
+# Run
 npm run dev
-
-# Production build
-npm run build
-npm start
 ```
+
+That's it. Users provide their own Nansen API key directly in Telegram — no server-side key needed.
+
+## How API Keys Work
+
+Each user sets their own [Nansen](https://app.nansen.ai) API key via the bot:
+
+1. Open a chat with the bot on Telegram
+2. Send `/setkey YOUR_NANSEN_API_KEY`
+3. Bot validates the key, deletes your message (security), and confirms
+4. Start querying tokens — `$PEPE`, `$ETH`, `0x6982...`
+
+Keys are persisted in `data/keys.json` on the server (gitignored) and survive restarts.
+
+**Commands:**
+| Command | Description |
+|---|---|
+| `/start` | Welcome message and status |
+| `/setkey <key>` | Set your Nansen API key |
+| `/removekey` | Remove your stored key |
+| `/token <query>` | Look up a token |
 
 ## Usage
 
@@ -83,7 +86,8 @@ npm start
 - Send a contract address like `0x6982...` directly
 - Use `/token <query>` as a command
 
-### Discord
+### Discord (optional)
+Requires `NANSEN_API_KEY`, `DISCORD_BOT_TOKEN`, and `DISCORD_CLIENT_ID` in `.env`.
 - Use the `/token` slash command
 - Or send `$PEPE` in any channel the bot can read
 
@@ -101,16 +105,19 @@ Ethereum, Solana, Base, BNB Chain, Arbitrum, Polygon, Optimism, Avalanche, Tron,
 src/
 ├── index.ts              # Entry point
 ├── config.ts             # Env var loading
+├── storage/
+│   └── keyStore.ts       # Per-user API key persistence (JSON file)
 ├── core/
 │   ├── parser.ts         # Parse user input ($SYMBOL, 0x..., chain hints)
 │   ├── resolver.ts       # Resolve symbol → chain + address via CoinGecko
 │   ├── lookup.ts         # Build token report (parallel API calls)
 │   └── types.ts          # Shared interfaces
 ├── nansen/
-│   └── client.ts         # Nansen API client with retry logic
+│   ├── client.ts         # Nansen API client with retry logic
+│   └── pool.ts           # NansenClient pool (one per API key)
 └── platforms/
     ├── render.ts         # Format reports for Telegram HTML & Discord embeds
-    ├── telegram.ts       # Grammy bot setup
+    ├── telegram.ts       # Grammy bot setup + /setkey flow
     └── discord.ts        # Discord.js bot setup
 ```
 

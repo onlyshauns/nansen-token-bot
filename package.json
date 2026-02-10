@@ -1,0 +1,21 @@
+{
+  "name": "nansen-bot",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsup src/index.ts --format esm --dts",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "grammy": "^1.31.0",
+    "discord.js": "^14.16.0",
+    "dotenv": "^16.4.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "tsup": "^8.3.0",
+    "typescript": "^5.6.0",
+    "@types/node": "^22.0.0"
+  }
+}

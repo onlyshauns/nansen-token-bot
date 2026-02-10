@@ -10,7 +10,7 @@ const ONBOARDING_MSG =
   '\uD83D\uDD11 <b>You haven\'t set your Nansen API key yet!</b>\n\n' +
   'To get started:\n' +
   '1. Get your API key from <a href="https://app.nansen.ai">app.nansen.ai</a>\n' +
-  '2. Send: <code>/setkey YOUR_API_KEY</code>\n\n' +
+  '2. DM me: <code>/setkey YOUR_API_KEY</code>\n\n' +
   'Your key is stored securely and only used for your queries.';
 
 export async function startTelegram(token: string): Promise<void> {
@@ -48,14 +48,24 @@ export async function startTelegram(token: string): Promise<void> {
     const userId = ctx.from?.id;
     if (!userId) return;
 
-    const apiKey = ctx.match?.trim();
-
-    // Delete the user's message containing the key (security)
+    // Always try to delete the message (it contains the key!)
     try {
       await ctx.api.deleteMessage(ctx.chat!.id, ctx.message!.message_id);
     } catch {
-      // May fail in groups if bot isn't admin — that's OK
+      // May fail if bot isn't admin
     }
+
+    // Block /setkey in groups — keys should only be set in DMs
+    if (ctx.chat!.type !== 'private') {
+      await ctx.reply(
+        '\u26A0\uFE0F For security, please set your API key in a <b>private message</b> to me.\n\n' +
+        'Tap my name \u2192 Send Message \u2192 <code>/setkey YOUR_KEY</code>',
+        { parse_mode: 'HTML' }
+      );
+      return;
+    }
+
+    const apiKey = ctx.match?.trim();
 
     if (!apiKey) {
       await ctx.reply(

@@ -364,13 +364,17 @@ export async function startTelegram(token: string): Promise<void> {
       // Skip commands
       if (ctx.message.text.startsWith('/')) return;
 
-      // Only respond to replies to the bot's own messages
-      const repliedTo = ctx.message.reply_to_message;
-      if (!repliedTo) return;
-
-      // Check if the replied-to message is from the bot
       const botId = ctx.me.id;
-      if (repliedTo.from?.id !== botId) return;
+      const botUsername = ctx.me.username;
+
+      // Trigger 1: Reply to the bot's own message
+      const repliedTo = ctx.message.reply_to_message;
+      const isReplyToBot = repliedTo && repliedTo.from?.id === botId;
+
+      // Trigger 2: @mention the bot (in groups)
+      const isMention = botUsername && ctx.message.text.includes(`@${botUsername}`);
+
+      if (!isReplyToBot && !isMention) return;
 
       // Rate limit check (silently skip if exceeded)
       const userId = ctx.from?.id;
@@ -378,11 +382,17 @@ export async function startTelegram(token: string): Promise<void> {
       if (!checkLlmRateLimit(userId)) return;
 
       // Extract context
-      const botMessageText = repliedTo.text || repliedTo.caption || '';
-      const userMessageText = ctx.message.text;
+      const botMessageText = isReplyToBot
+        ? (repliedTo!.text || repliedTo!.caption || '')
+        : '';
+      let userMessageText = ctx.message.text;
+      // Strip the @mention from the user's message
+      if (botUsername) {
+        userMessageText = userMessageText.replace(`@${botUsername}`, '').trim();
+      }
       const userName = ctx.from.first_name || 'anon';
 
-      if (!botMessageText || !userMessageText) return;
+      if (!userMessageText) return;
 
       // Record the call for rate limiting
       recordLlmCall(userId);

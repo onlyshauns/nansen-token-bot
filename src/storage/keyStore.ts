@@ -1,18 +1,66 @@
 import { readFileSync, writeFileSync, mkdirSync, renameSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 
-const DATA_DIR = join(process.cwd(), 'data');
+const DATA_DIR = process.env.DATA_DIR || join(process.cwd(), 'data');
 const KEYS_FILE = join(DATA_DIR, 'keys.json');
 
-type KeyMap = Record<string, string>; // userId → apiKey
+// ============================================
+// Types
+// ============================================
+
+interface UserConfig {
+  apiKey: string;
+  dmOnly: boolean;
+  queryCount: number;
+  lastQueryAt?: string; // ISO timestamp
+}
+
+/** Raw file format — values may be old (plain string) or new (UserConfig) */
+type RawKeyMap = Record<string, string | UserConfig>;
+type KeyMap = Record<string, UserConfig>;
+
+// ============================================
+// Persistence
+// ============================================
 
 function load(): KeyMap {
   try {
     const raw = readFileSync(KEYS_FILE, 'utf-8');
-    return JSON.parse(raw) as KeyMap;
+    const data = JSON.parse(raw) as RawKeyMap;
+    return migrate(data);
   } catch {
     return {};
   }
+}
+
+/**
+ * Auto-migrate old format (plain string apiKey) to new UserConfig object.
+ */
+function migrate(data: RawKeyMap): KeyMap {
+  const result: KeyMap = {};
+  let needsSave = false;
+
+  for (const [userId, value] of Object.entries(data)) {
+    if (typeof value === 'string') {
+      // Old format: just the API key string
+      result[userId] = {
+        apiKey: value,
+        dmOnly: false,
+        queryCount: 0,
+      };
+      needsSave = true;
+    } else {
+      // New format: already a UserConfig
+      result[userId] = value;
+    }
+  }
+
+  // Persist the migrated data
+  if (needsSave) {
+    save(result);
+  }
+
+  return result;
 }
 
 function save(data: KeyMap): void {
@@ -23,14 +71,26 @@ function save(data: KeyMap): void {
   renameSync(tmp, KEYS_FILE);
 }
 
+// ============================================
+// API Key Management
+// ============================================
+
 export function getKey(userId: number): string | null {
   const data = load();
-  return data[String(userId)] ?? null;
+  return data[String(userId)]?.apiKey ?? null;
 }
 
 export function setKey(userId: number, apiKey: string): void {
   const data = load();
-  data[String(userId)] = apiKey;
+  const existing = data[String(userId)];
+
+  data[String(userId)] = {
+    apiKey,
+    dmOnly: existing?.dmOnly ?? false,
+    queryCount: existing?.queryCount ?? 0,
+    lastQueryAt: existing?.lastQueryAt,
+  };
+
   save(data);
 }
 
@@ -38,4 +98,48 @@ export function deleteKey(userId: number): void {
   const data = load();
   delete data[String(userId)];
   save(data);
+}
+
+// ============================================
+// DM-Only Mode
+// ============================================
+
+export function getDmOnly(userId: number): boolean {
+  const data = load();
+  return data[String(userId)]?.dmOnly ?? false;
+}
+
+export function setDmOnly(userId: number, enabled: boolean): void {
+  const data = load();
+  const config = data[String(userId)];
+  if (!config) return; // No key set — nothing to toggle
+
+  config.dmOnly = enabled;
+  save(data);
+}
+
+// ============================================
+// Usage Stats
+// ============================================
+
+export function incrementQueryCount(userId: number): void {
+  const data = load();
+  const config = data[String(userId)];
+  if (!config) return;
+
+  config.queryCount = (config.queryCount || 0) + 1;
+  config.lastQueryAt = new Date().toISOString();
+  save(data);
+}
+
+export function getStats(userId: number): { queryCount: number; lastQueryAt?: string; dmOnly: boolean } | null {
+  const data = load();
+  const config = data[String(userId)];
+  if (!config) return null;
+
+  return {
+    queryCount: config.queryCount || 0,
+    lastQueryAt: config.lastQueryAt,
+    dmOnly: config.dmOnly,
+  };
 }

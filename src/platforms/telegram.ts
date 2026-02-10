@@ -3,8 +3,18 @@ import { parseUserInput, isTokenQuery } from '../core/parser.js';
 import { resolveToken } from '../core/resolver.js';
 import { buildTokenReport } from '../core/lookup.js';
 import { toTelegramHTML } from './render.js';
-import { getKey, setKey, deleteKey } from '../storage/keyStore.js';
+import { getKey, setKey, deleteKey, getDmOnly, setDmOnly, incrementQueryCount, getStats } from '../storage/keyStore.js';
 import { getClient, validateKey } from '../nansen/pool.js';
+import {
+  checkRateLimit,
+  recordQuery,
+  getRemainingPerMinute,
+  isQueryInFlight,
+  markQueryStart,
+  markQueryEnd,
+} from '../security/rateLimiter.js';
+
+import type { NansenClient } from '../nansen/client.js';
 
 const ONBOARDING_MSG =
   '\uD83D\uDD11 <b>You haven\'t set your Nansen API key yet!</b>\n\n' +
@@ -30,6 +40,8 @@ export async function startTelegram(token: string): Promise<void> {
         '\u2022 <code>0x6982...</code> \u2014 looks up by contract address\n\n' +
         'Commands:\n' +
         '/token &lt;query&gt; \u2014 look up a token\n' +
+        '/dmonly \u2014 toggle DM-only mode\n' +
+        '/mystats \u2014 see your usage stats\n' +
         '/removekey \u2014 remove your API key',
         { parse_mode: 'HTML', link_preview_options: { is_disabled: true } }
       );
@@ -115,6 +127,70 @@ export async function startTelegram(token: string): Promise<void> {
     await ctx.reply('\u2705 Your API key has been removed.');
   });
 
+  // /dmonly command — toggle DM-only mode
+  bot.command('dmonly', async (ctx) => {
+    const userId = ctx.from?.id;
+    if (!userId) return;
+
+    if (!getKey(userId)) {
+      await ctx.reply(ONBOARDING_MSG, { parse_mode: 'HTML', link_preview_options: { is_disabled: true } });
+      return;
+    }
+
+    const arg = ctx.match?.trim().toLowerCase();
+
+    if (arg === 'on') {
+      setDmOnly(userId, true);
+      await ctx.reply(
+        '\uD83D\uDD12 <b>DM-only mode enabled.</b>\n\n' +
+        'Your API key will only work in private messages with me.\n' +
+        'Token queries in groups will be silently ignored.',
+        { parse_mode: 'HTML' }
+      );
+    } else if (arg === 'off') {
+      setDmOnly(userId, false);
+      await ctx.reply(
+        '\uD83D\uDD13 <b>DM-only mode disabled.</b>\n\n' +
+        'Your API key now works in both DMs and groups.',
+        { parse_mode: 'HTML' }
+      );
+    } else {
+      const current = getDmOnly(userId);
+      await ctx.reply(
+        `\uD83D\uDD10 <b>DM-only mode:</b> ${current ? 'ON \uD83D\uDD12' : 'OFF \uD83D\uDD13'}\n\n` +
+        'Usage:\n' +
+        '<code>/dmonly on</code> \u2014 only respond to your queries in DMs\n' +
+        '<code>/dmonly off</code> \u2014 respond in DMs and groups',
+        { parse_mode: 'HTML' }
+      );
+    }
+  });
+
+  // /mystats command — show usage stats
+  bot.command('mystats', async (ctx) => {
+    const userId = ctx.from?.id;
+    if (!userId) return;
+
+    const stats = getStats(userId);
+    if (!stats) {
+      await ctx.reply(ONBOARDING_MSG, { parse_mode: 'HTML', link_preview_options: { is_disabled: true } });
+      return;
+    }
+
+    const remaining = getRemainingPerMinute(userId);
+    const lastQuery = stats.lastQueryAt ? formatTimeAgo(stats.lastQueryAt) : 'Never';
+    const mode = stats.dmOnly ? 'DM only \uD83D\uDD12' : 'DMs + Groups \uD83D\uDD13';
+
+    await ctx.reply(
+      '\uD83D\uDCCA <b>Your API Usage</b>\n\n' +
+      `\u2022 Total queries: <b>${stats.queryCount}</b>\n` +
+      `\u2022 Last query: ${lastQuery}\n` +
+      `\u2022 Mode: ${mode}\n` +
+      `\u2022 Rate limit: <b>${remaining}/10</b> queries remaining this minute`,
+      { parse_mode: 'HTML' }
+    );
+  });
+
   // /token command
   bot.command('token', async (ctx) => {
     const query = ctx.match;
@@ -123,13 +199,14 @@ export async function startTelegram(token: string): Promise<void> {
       return;
     }
 
-    const nansen = getNansenForUser(ctx);
-    if (!nansen) {
-      await ctx.reply(ONBOARDING_MSG, { parse_mode: 'HTML', link_preview_options: { is_disabled: true } });
-      return;
-    }
+    const userId = ctx.from?.id;
+    if (!userId) return;
 
-    await handleTokenQuery(ctx, query, nansen);
+    // Security checks
+    const guardResult = await runSecurityChecks(ctx, userId);
+    if (!guardResult.ok) return;
+
+    await executeTokenQuery(ctx, query, guardResult.nansen!, userId);
   });
 
   // Auto-detect $SYMBOL and CA in messages
@@ -147,13 +224,14 @@ export async function startTelegram(token: string): Promise<void> {
     // Only respond to messages that look like token queries
     if (!isTokenQuery(text)) return;
 
-    const nansen = getNansenForUser(ctx);
-    if (!nansen) {
-      await ctx.reply(ONBOARDING_MSG, { parse_mode: 'HTML', link_preview_options: { is_disabled: true } });
-      return;
-    }
+    const userId = ctx.from?.id;
+    if (!userId) return;
 
-    await handleTokenQuery(ctx, text, nansen);
+    // Security checks
+    const guardResult = await runSecurityChecks(ctx, userId);
+    if (!guardResult.ok) return;
+
+    await executeTokenQuery(ctx, text, guardResult.nansen!, userId);
   });
 
   bot.catch((err) => {
@@ -165,10 +243,81 @@ export async function startTelegram(token: string): Promise<void> {
 }
 
 // ============================================
-// Helpers
+// Security Checks
 // ============================================
 
-import type { NansenClient } from '../nansen/client.js';
+interface GuardResult {
+  ok: boolean;
+  nansen?: NansenClient;
+}
+
+/**
+ * Run all security checks before processing a query.
+ * Returns { ok: true, nansen } if all checks pass, { ok: false } otherwise.
+ * Sends appropriate error messages to the user.
+ */
+async function runSecurityChecks(ctx: Context, userId: number): Promise<GuardResult> {
+  // 1. Check if user has an API key
+  const nansen = getNansenForUser(ctx);
+  if (!nansen) {
+    await ctx.reply(ONBOARDING_MSG, { parse_mode: 'HTML', link_preview_options: { is_disabled: true } });
+    return { ok: false };
+  }
+
+  // 2. DM-only mode check — silently ignore in groups
+  const isPrivate = ctx.chat?.type === 'private';
+  if (!isPrivate && getDmOnly(userId)) {
+    // Silently ignore — don't spam the group with "DM only" messages
+    return { ok: false };
+  }
+
+  // 3. Concurrent query check
+  if (isQueryInFlight(userId)) {
+    await ctx.reply('\u23F3 Please wait for your current query to finish.');
+    return { ok: false };
+  }
+
+  // 4. Rate limit check
+  const rateCheck = checkRateLimit(userId);
+  if (!rateCheck.allowed) {
+    await ctx.reply(
+      `\u26A0\uFE0F Slow down! Try again in ${rateCheck.retryAfterSecs}s.`
+    );
+    return { ok: false };
+  }
+
+  return { ok: true, nansen };
+}
+
+// ============================================
+// Query Execution
+// ============================================
+
+/**
+ * Execute a token query with rate limiting and concurrency guard.
+ */
+async function executeTokenQuery(
+  ctx: Context,
+  rawQuery: string,
+  nansen: NansenClient,
+  userId: number
+): Promise<void> {
+  // Record the query for rate limiting
+  recordQuery(userId);
+  markQueryStart(userId);
+
+  try {
+    await handleTokenQuery(ctx, rawQuery, nansen);
+    // Increment persistent stats only on success
+    incrementQueryCount(userId);
+  } finally {
+    markQueryEnd(userId);
+  }
+}
+
+// ============================================
+// Helpers
+// ============================================
 
 /**
  * Look up the user's API key and return a NansenClient, or null if not set.
@@ -260,4 +409,24 @@ function splitMessage(text: string, maxLength: number): string[] {
   }
 
   return chunks;
+}
+
+/**
+ * Format an ISO timestamp as a relative "time ago" string.
+ */
+function formatTimeAgo(isoDate: string): string {
+  const now = Date.now();
+  const then = new Date(isoDate).getTime();
+  const diffMs = now - then;
+
+  if (diffMs < 60_000) return 'Just now';
+
+  const minutes = Math.floor(diffMs / 60_000);
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'} ago`;
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+
+  const days = Math.floor(hours / 24);
+  return `${days} day${days === 1 ? '' : 's'} ago`;
 }

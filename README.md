@@ -121,6 +121,42 @@ TWITTER_DRY_RUN=true           # Log tweets to console instead of posting
 - `0x6982...` -- contract address
 - `/token PEPE` -- command form
 
+### Token Resolution
+
+Symbols are resolved via **CoinGecko** first (free, no key needed). If CoinGecko doesn't list the token, the bot falls back to **Nansen's token screener** to find it -- so newer tokens like memecoins and recently launched projects that aren't on CoinGecko will still work.
+
+### Supported Chains
+
+| Chain | Alias | Native Token |
+|-------|-------|--------------|
+| Ethereum | `eth` | ETH |
+| Solana | `sol` | SOL |
+| Base | `base` | ETH |
+| BNB Chain | `bnb`, `bsc` | BNB |
+| Arbitrum | `arb` | ARB |
+| Polygon | `poly` | POL |
+| Optimism | `op` | OP |
+| Avalanche | `avax` | AVAX |
+| Tron | `tron` | TRX |
+| Fantom | `ftm` | FTM |
+| Blast | `blast` | ETH |
+| Scroll | `scroll` | ETH |
+| Linea | `linea` | ETH |
+| Mantle | `mantle` | MNT |
+| Ronin | `ronin` | RON |
+| Sei | `sei` | SEI |
+| zkSync | `zk`, `zksync` | ETH |
+| Unichain | `unichain` | ETH |
+| Sonic | `sonic` | S |
+| HyperEVM | `hyperevm` | HYPE |
+| NEAR | `near` | NEAR |
+| Starknet | `stark` | STRK |
+| Sui | `sui` | SUI |
+| TON | `ton` | TON |
+| Monad | `mon`, `monad` | MON |
+| Plasma | `plasma` | ETH |
+| IOTA EVM | `iota` | IOTA |
+
 ## Testing
 
 ```bash
@@ -146,7 +182,7 @@ src/
 ├── config.ts             # Environment variable loading
 ├── core/
 │   ├── parser.ts         # Parse input ($SYMBOL, 0x..., keywords, products)
-│   ├── resolver.ts       # Resolve symbol -> chain + address via CoinGecko
+│   ├── resolver.ts       # Resolve symbol -> chain + address (CoinGecko + Nansen fallback)
 │   ├── lookup.ts         # Build token reports (parallel API calls)
 │   └── types.ts          # Shared interfaces
 ├── nansen/
@@ -192,8 +228,8 @@ src/
 
 ## Data Sources
 
-- **[Nansen](https://nansen.ai)** -- Token data, holder flows, smart money activity, exchange flows
-- **[CoinGecko](https://coingecko.com)** -- Token resolution and price data (fallback)
+- **[Nansen](https://nansen.ai)** -- Token data, holder flows, smart money activity, exchange flows, token resolution fallback
+- **[CoinGecko](https://coingecko.com)** -- Primary token resolution (symbol to address) and price data
 - **[Anthropic Claude](https://anthropic.com)** -- Tweet generation and personality replies
 
 ## License

@@ -120,7 +120,7 @@ const NATIVE_TOKEN_MAP: Record<string, ResolvedToken> = {
     name: 'Sui',
     symbol: 'SUI',
     chain: 'sui',
-    address: '0x2::sui::SUI',
+    address: '0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI',
     coingeckoId: 'sui',
   },
   near: {

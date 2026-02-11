@@ -24,7 +24,7 @@ const WATCHLIST: ResolvedToken[] = [
   { name: 'Arbitrum', symbol: 'ARB', chain: 'arbitrum', address: '0x912ce59144191c1204e64559fe8253a0e49e6548' },
   { name: 'Optimism', symbol: 'OP', chain: 'optimism', address: '0x4200000000000000000000000000000000000042' },
   { name: 'Hyperliquid', symbol: 'HYPE', chain: 'hyperevm', address: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' },
-  { name: 'Sui', symbol: 'SUI', chain: 'sui', address: '0x2::sui::SUI' },
+  { name: 'Sui', symbol: 'SUI', chain: 'sui', address: '0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI' },
   { name: 'Avalanche', symbol: 'AVAX', chain: 'avalanche', address: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' },
 
   // Memecoins

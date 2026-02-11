@@ -61,6 +61,7 @@ const NATIVE_CG_IDS: Record<string, string> = {
   'monad:0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee': 'monad',
   'ton:0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee': 'the-open-network',
   'sui:0x2::sui::SUI': 'sui',
+  'sui:0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI': 'sui',
   'near:wrap.near': 'near',
 };
 

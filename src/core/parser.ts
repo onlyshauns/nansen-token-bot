@@ -26,6 +26,11 @@ const EVM_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
 const SOLANA_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 const TRON_ADDRESS_RE = /^T[1-9A-HJ-NP-Za-km-z]{33}$/;
 
+// Non-anchored versions for matching CAs anywhere in surrounding text
+const EVM_ADDRESS_ANYWHERE_RE = /(?:^|\s)(0x[a-fA-F0-9]{40})(?:\s|$)/;
+const SOLANA_ADDRESS_ANYWHERE_RE = /(?:^|\s)([1-9A-HJ-NP-Za-km-z]{32,44})(?:\s|$)/;
+const TRON_ADDRESS_ANYWHERE_RE = /(?:^|\s)(T[1-9A-HJ-NP-Za-km-z]{33})(?:\s|$)/;
+
 export function parseUserInput(raw: string): ParsedInput | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
@@ -103,6 +108,12 @@ export function isTokenQuery(text: string): boolean {
   if (TRON_ADDRESS_RE.test(first)) return true;
   // Also match $SYMBOL anywhere in the message (e.g. "tell me about $PEPE")
   if (DOLLAR_SYMBOL_RE.test(trimmed)) return true;
+  // Match contract addresses anywhere in surrounding text
+  if (EVM_ADDRESS_ANYWHERE_RE.test(trimmed)) return true;
+  if (TRON_ADDRESS_ANYWHERE_RE.test(trimmed)) return true;
+  // Solana: only match long base58 strings (32+ chars) to avoid false positives
+  const solMatch = trimmed.match(SOLANA_ADDRESS_ANYWHERE_RE);
+  if (solMatch && solMatch[1].length >= 32) return true;
   return false;
 }
 
@@ -124,19 +135,39 @@ export function extractTokenQuery(text: string): string | null {
   if (TRON_ADDRESS_RE.test(first)) return trimmed;
 
   // Extract $SYMBOL from surrounding text
-  const match = trimmed.match(/(\$[A-Za-z]{2,10})/);
-  if (!match) return null;
-
-  const symbol = match[1];
-
-  // Check if there's a chain hint anywhere in the text
-  const words = trimmed.split(/\s+/);
-  for (const word of words) {
-    const lower = word.toLowerCase().replace(/^\$/, '');
-    if (CHAIN_ALIASES[lower] && `$${lower.toUpperCase()}` !== symbol.toUpperCase()) {
-      return `${symbol} ${lower}`;
+  const symbolMatch = trimmed.match(/(\$[A-Za-z]{2,10})/);
+  if (symbolMatch) {
+    const symbol = symbolMatch[1];
+    // Check if there's a chain hint anywhere in the text
+    const words = trimmed.split(/\s+/);
+    for (const word of words) {
+      const lower = word.toLowerCase().replace(/^\$/, '');
+      if (CHAIN_ALIASES[lower] && `$${lower.toUpperCase()}` !== symbol.toUpperCase()) {
+        return `${symbol} ${lower}`;
+      }
     }
+    return symbol;
   }
 
-  return symbol;
+  // Extract contract address from surrounding text (e.g. "look up 0x6982...")
+  const evmMatch = trimmed.match(EVM_ADDRESS_ANYWHERE_RE);
+  if (evmMatch) {
+    const ca = evmMatch[1];
+    const words = trimmed.split(/\s+/);
+    for (const word of words) {
+      const lower = word.toLowerCase();
+      if (CHAIN_ALIASES[lower] && lower !== ca.toLowerCase()) {
+        return `${ca} ${lower}`;
+      }
+    }
+    return ca;
+  }
+
+  const tronMatch = trimmed.match(TRON_ADDRESS_ANYWHERE_RE);
+  if (tronMatch) return tronMatch[1];
+
+  const solMatch = trimmed.match(SOLANA_ADDRESS_ANYWHERE_RE);
+  if (solMatch && solMatch[1].length >= 32) return solMatch[1];
+
+  return null;
 }

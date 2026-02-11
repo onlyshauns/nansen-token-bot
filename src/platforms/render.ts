@@ -175,7 +175,10 @@ export function toTelegramHTML(report: TokenReport): string {
 
   // Market data
   if (report.priceUsd !== null) {
-    lines.push(`\uD83D\uDCB0 Price: ${formatPrice(report.priceUsd)}`);
+    const changeTag = report.priceChange24h !== null
+      ? ` (${formatPriceChange(report.priceChange24h)})`
+      : '';
+    lines.push(`\uD83D\uDCB0 Price: ${formatPrice(report.priceUsd)}${changeTag}`);
   }
   if (report.marketCapUsd !== null) {
     lines.push(`\uD83C\uDFDB\uFE0F Mcap: ${formatUsd(report.marketCapUsd)}`);
@@ -184,7 +187,7 @@ export function toTelegramHTML(report: TokenReport): string {
     lines.push(`\uD83D\uDC8E FDV: ${formatUsd(report.fdvUsd)}`);
   }
   if (report.volume24hUsd !== null) {
-    lines.push(`\uD83D\uDCC8 Vol: ${formatUsd(report.volume24hUsd)}`);
+    lines.push(`\uD83D\uDCC8 24h Vol: ${formatUsd(report.volume24hUsd)}`);
   }
   if (report.liquidityUsd !== null) {
     lines.push(`\uD83D\uDCA7 Liq: ${formatUsd(report.liquidityUsd)}`);
@@ -283,13 +286,16 @@ export function toDiscordEmbed(report: TokenReport): EmbedBuilder {
 
   // Market data fields (inline)
   if (report.priceUsd !== null) {
-    embed.addFields({ name: '\uD83D\uDCB0 Price', value: formatPrice(report.priceUsd), inline: true });
+    const changeTag = report.priceChange24h !== null
+      ? ` (${formatPriceChange(report.priceChange24h)})`
+      : '';
+    embed.addFields({ name: '\uD83D\uDCB0 Price', value: `${formatPrice(report.priceUsd)}${changeTag}`, inline: true });
   }
   if (report.marketCapUsd !== null) {
     embed.addFields({ name: '\uD83C\uDFDB\uFE0F Mcap', value: formatUsd(report.marketCapUsd), inline: true });
   }
   if (report.volume24hUsd !== null) {
-    embed.addFields({ name: '\uD83D\uDCC8 Vol', value: formatUsd(report.volume24hUsd), inline: true });
+    embed.addFields({ name: '\uD83D\uDCC8 24h Vol', value: formatUsd(report.volume24hUsd), inline: true });
   }
   if (report.fdvUsd !== null) {
     embed.addFields({ name: '\uD83D\uDC8E FDV', value: formatUsd(report.fdvUsd), inline: true });

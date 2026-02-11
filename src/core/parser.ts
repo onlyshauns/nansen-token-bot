@@ -273,3 +273,104 @@ export function extractKeywordQuery(text: string): { query: string; context: str
 
   return null;
 }
+
+// ============================================
+// Nansen Product Routing (Twitter only)
+// ============================================
+
+export interface NansenProductMatch {
+  product: string;
+  url: string;
+  description: string;
+}
+
+/**
+ * Product routes — ordered by specificity (most specific first).
+ * Each entry: [keywords[], product name, URL, one-liner description]
+ */
+const PRODUCT_ROUTES: [string[], string, string, string][] = [
+  // Staking
+  [['stake', 'staking', 'yield', 'earn', 'delegate', 'validator'],
+    'Nansen Staking', 'https://app.nansen.ai/stake',
+    'Stake across 20+ PoS chains with $2B+ AUM'],
+
+  // Research
+  [['research', 'report', 'reports', 'alpha', 'briefing', 'war room'],
+    'Nansen Research', 'https://research.nansen.ai',
+    'Deep-dive research reports, market briefings, and alpha insights'],
+
+  // Token God Mode
+  [['token god mode', 'god mode', 'tgm'],
+    'Token God Mode', 'https://app.nansen.ai',
+    'Full token analysis — holder distributions, smart money movements, exchange flows'],
+
+  // Smart Alerts
+  [['alert', 'alerts', 'smart alerts', 'notifications', 'notify'],
+    'Smart Alerts', 'https://app.nansen.ai',
+    'Real-time alerts for whale movements, token transfers, and smart money activity'],
+
+  // AI features
+  [['nansen ai', 'ai agent', 'ai trading', 'agentic', 'deep research'],
+    'Nansen AI', 'https://mobile.nansen.ai',
+    'AI-powered onchain analysis and agentic trading'],
+
+  // Portfolio
+  [['portfolio', 'track portfolio', 'portfolio tracker', 'track my'],
+    'Nansen Portfolio', 'https://app.nansen.ai/portfolio',
+    'Track your crypto investments across multiple chains'],
+
+  // Profiler / Wallet analysis
+  [['profiler', 'wallet profiler', 'analyze wallet', 'wallet analysis', 'label', 'labels', 'who is'],
+    'Nansen Profiler', 'https://app.nansen.ai',
+    'Analyze any wallet with 500M+ labeled addresses'],
+
+  // Screener
+  [['screener', 'token screener', 'find tokens', 'discover', 'trending tokens'],
+    'Token Screener', 'https://app.nansen.ai',
+    'Discover high-potential tokens using onchain data and smart money signals'],
+
+  // API / Developer
+  [['api', 'developer', 'docs', 'documentation', 'endpoints', 'integrate', 'mcp'],
+    'Nansen API', 'https://docs.nansen.ai',
+    'Programmatic access to onchain data — REST API and MCP integration'],
+
+  // Nansen Points
+  [['points', 'nsn points', 'loyalty', 'rewards'],
+    'Nansen Points', 'https://app.nansen.ai',
+    'Earn NSN points by subscribing, staking, and referring'],
+
+  // Pricing
+  [['pricing', 'plans', 'subscription', 'cost', 'how much', 'free trial'],
+    'Nansen Pricing', 'https://www.nansen.ai/plans',
+    'Explorer (free), Analyst, and Pro tiers available'],
+
+  // Pro Trading
+  [['pro trading', 'trading terminal', 'swap', 'execute trade'],
+    'Nansen Trading', 'https://pro.nansen.ai',
+    'Integrated trading terminal — analytics meets execution (open beta)'],
+
+  // General / catch-all for "what is nansen", "what does nansen do"
+  [['what is nansen', 'about nansen', "nansen's plan", 'nansen offer', 'nansen feature', 'roadmap'],
+    'Nansen', 'https://www.nansen.ai',
+    'Onchain analytics platform — smart money tracking, token analysis, wallet profiling, staking, and AI-powered research'],
+];
+
+/**
+ * Detect Nansen product/feature questions in a Twitter mention.
+ * e.g. "where can I stake $SOL?" → Nansen Staking
+ * e.g. "where are the research reports?" → Nansen Research
+ * Returns null if no product match found.
+ */
+export function extractProductQuery(text: string): NansenProductMatch | null {
+  const lower = text.toLowerCase();
+
+  for (const [keywords, product, url, description] of PRODUCT_ROUTES) {
+    for (const kw of keywords) {
+      if (lower.includes(kw)) {
+        return { product, url, description };
+      }
+    }
+  }
+
+  return null;
+}

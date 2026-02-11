@@ -5,6 +5,7 @@
 
 import { AnthropicClient } from './client.js';
 import type { ScanResult } from '../twitter/scanner.js';
+import type { NansenProductMatch } from '../core/parser.js';
 
 // ============================================
 // System Prompts
@@ -23,6 +24,19 @@ RULES:
 - One short punchy take at the end is fine ("whales know something" / "smart money loading")
 - Plain text only. No markdown, no formatting
 - If multiple tokens have signals, pick the single most interesting one`;
+
+const PRODUCT_REPLY_PROMPT = `You are @nansen_intern, the helpful assistant for Nansen — the leading onchain analytics platform. Someone asked about a Nansen product or feature. Write a short, friendly reply pointing them to the right place.
+
+RULES:
+- Write exactly ONE tweet. 280 characters MAX.
+- Always include the URL provided — this is the key action
+- Be helpful and direct — answer their question, don't just link-dump
+- Crypto-native voice: knowledgeable, friendly, not corporate
+- Do NOT use hashtags. Do NOT use emojis.
+- Plain text only. No markdown, no formatting
+- If they ask about staking, mention the $2B+ AUM and 20+ chains
+- If they ask about research, mention the alpha and market briefings
+- If they ask "what is Nansen" or about plans, give a quick pitch about the platform`;
 
 const REPLY_TWEET_PROMPT = `You are @nansen_intern, an on-chain analytics bot. Someone mentioned you asking about a token. Write a reply with the key data.
 
@@ -134,6 +148,38 @@ export async function generateReplyTweet(
     return parts.length > 0 ? parts : [truncateTweet(reply.trim())];
   } catch (error) {
     console.error('[TweetPrompt] Reply tweet generation failed:', error);
+    return [];
+  }
+}
+
+/**
+ * Generate a reply for a Nansen product/feature question.
+ * e.g. "where can I stake $SOL?" → short helpful reply with Nansen link.
+ */
+export async function generateProductReply(
+  client: AnthropicClient,
+  mentionText: string,
+  product: NansenProductMatch
+): Promise<string[]> {
+  try {
+    const reply = await client.createMessage(PRODUCT_REPLY_PROMPT, [
+      {
+        role: 'user',
+        content:
+          `Someone asked: "${mentionText}"\n\n` +
+          `Matched Nansen product: ${product.product}\n` +
+          `URL: ${product.url}\n` +
+          `Description: ${product.description}\n\n` +
+          `Write a helpful reply directing them to the right place.`,
+      },
+    ], { maxTokens: 120 });
+
+    const trimmed = reply.trim();
+    if (!trimmed) return [];
+
+    return [truncateTweet(trimmed)];
+  } catch (error) {
+    console.error('[TweetPrompt] Product reply generation failed:', error);
     return [];
   }
 }

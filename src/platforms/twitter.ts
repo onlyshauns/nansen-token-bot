@@ -15,8 +15,8 @@ import { getWatchlistTokens } from '../twitter/watchlist.js';
 import { scanWatchlist } from '../twitter/scanner.js';
 import { wasRecentlyTweeted, recordTweet, getLastMentionId, setLastMentionId, setLastScanAt } from '../twitter/state.js';
 import { canTweet, canRead, recordTweetUsage, recordReadUsage, getUsageSummary, isNearLimit } from '../twitter/rateLimiter.js';
-import { generateScheduledTweet, generateReplyTweet } from '../llm/tweetPrompt.js';
-import { extractTokenQuery, extractKeywordQuery, parseUserInput } from '../core/parser.js';
+import { generateScheduledTweet, generateReplyTweet, generateProductReply } from '../llm/tweetPrompt.js';
+import { extractTokenQuery, extractKeywordQuery, extractProductQuery, parseUserInput } from '../core/parser.js';
 import { resolveToken } from '../core/resolver.js';
 import { buildTokenReport } from '../core/lookup.js';
 import { toTweetText } from './render.js';
@@ -199,16 +199,43 @@ async function runMentionPoll(
         let query = extractTokenQuery(mention.text);
         let focusContext: string | undefined;
 
-        // Fallback: keyword-based detection (e.g. "smart money on Solana")
+        // Fallback 1: keyword-based detection (e.g. "smart money on Solana")
         if (!query) {
           const kwResult = extractKeywordQuery(mention.text);
-          if (!kwResult) {
-            console.log(`[Twitter] Mention ${mention.id}: no token query found, skipping`);
+          if (kwResult) {
+            query = kwResult.query;
+            focusContext = kwResult.context;
+            console.log(`[Twitter] Mention ${mention.id}: keyword match "${focusContext}" → ${query}`);
+          }
+        }
+
+        // Fallback 2: Nansen product routing (e.g. "where can I stake?", "research reports")
+        if (!query) {
+          const productMatch = extractProductQuery(mention.text);
+          if (productMatch) {
+            console.log(`[Twitter] Mention ${mention.id}: product match → ${productMatch.product}`);
+
+            if (!canTweet(opts.tier)) {
+              console.warn('[Twitter] Tweet rate limit reached, stopping mention processing');
+              break;
+            }
+
+            const replyParts = await generateProductReply(
+              anthropic, mention.text, productMatch
+            );
+
+            if (replyParts.length > 0) {
+              await postReplyThread(client, mention.id, replyParts, opts.dryRun);
+              recordTweetUsage();
+              console.log(`[Twitter] Product reply for mention ${mention.id}: ${productMatch.product}`);
+            }
+
+            await sleep(2000);
             continue;
           }
-          query = kwResult.query;
-          focusContext = kwResult.context;
-          console.log(`[Twitter] Mention ${mention.id}: keyword match "${focusContext}" → ${query}`);
+
+          console.log(`[Twitter] Mention ${mention.id}: no token query found, skipping`);
+          continue;
         }
 
         console.log(`[Twitter] Mention ${mention.id}: query="${query}"`);

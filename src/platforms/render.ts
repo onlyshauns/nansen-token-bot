@@ -196,48 +196,61 @@ export function toTelegramHTML(report: TokenReport): string {
     lines.push(`\uD83D\uDC65 Holders: ${report.holderCount.toLocaleString()}`);
   }
 
-  // Holder Flows (unified section: smart money + flow segments)
+  // Holder Flows section
   const hasSM = hasSmartMoneyData(report.smartMoney);
+  const hasFlows = report.flows.length > 0;
 
-  if (hasSM || report.flows.length > 0) {
-    lines.push('');
-    lines.push('<b>\uD83D\uDD04 Holder Flows (24h)</b>');
+  lines.push('');
+  lines.push('<b>\uD83D\uDD04 Holder Flows (24h)</b>');
 
-    // Flow segments (always show all, N/A if no data)
+  if (hasFlows) {
     for (const flow of report.flows) {
       lines.push(formatFlowLine(flow));
     }
+  } else {
+    lines.push('\u2022 Not Available');
+  }
 
-    // Smart Money DEX buy/sell summary
-    if (hasSM && report.smartMoney.buySell) {
-      const bs = report.smartMoney.buySell;
-      lines.push(`\uD83D\uDCB1 DEX Activity: \uD83D\uDFE2 ${formatUsd(bs.boughtVolumeUsd)} bought / \uD83D\uDD34 ${formatUsd(bs.soldVolumeUsd)} sold`);
-    }
+  // Smart Money DEX buy/sell summary
+  if (hasSM && report.smartMoney.buySell) {
+    const bs = report.smartMoney.buySell;
+    lines.push(`\uD83D\uDCB1 DEX Activity: \uD83D\uDFE2 ${formatUsd(bs.boughtVolumeUsd)} bought / \uD83D\uDD34 ${formatUsd(bs.soldVolumeUsd)} sold`);
+  }
 
-    // Top Buyers
-    if (report.smartMoney.topBuyers.length > 0) {
-      lines.push('');
-      lines.push('<b>\uD83D\uDFE2 Top Buyers</b>');
-      for (let i = 0; i < report.smartMoney.topBuyers.length; i++) {
-        const t = report.smartMoney.topBuyers[i];
-        lines.push(`${i + 1}. ${t.label} \u2014 ${formatUsd(t.volumeUsd)}`);
-      }
-    }
-
-    // Top Sellers
-    if (report.smartMoney.topSellers.length > 0) {
-      lines.push('');
-      lines.push('<b>\uD83D\uDD34 Top Sellers</b>');
-      for (let i = 0; i < report.smartMoney.topSellers.length; i++) {
-        const t = report.smartMoney.topSellers[i];
-        lines.push(`${i + 1}. ${t.label} \u2014 ${formatUsd(t.volumeUsd)}`);
-      }
+  // Top Buyers
+  if (report.smartMoney.topBuyers.length > 0) {
+    lines.push('');
+    lines.push('<b>\uD83D\uDFE2 Top Buyers</b>');
+    for (let i = 0; i < report.smartMoney.topBuyers.length; i++) {
+      const t = report.smartMoney.topBuyers[i];
+      lines.push(`${i + 1}. ${t.label} \u2014 ${formatUsd(t.volumeUsd)}`);
     }
   }
 
-  // Footer
+  // Top Sellers
+  if (report.smartMoney.topSellers.length > 0) {
+    lines.push('');
+    lines.push('<b>\uD83D\uDD34 Top Sellers</b>');
+    for (let i = 0; i < report.smartMoney.topSellers.length; i++) {
+      const t = report.smartMoney.topSellers[i];
+      lines.push(`${i + 1}. ${t.label} \u2014 ${formatUsd(t.volumeUsd)}`);
+    }
+  }
+
+  // Smart Money section — show N/A if no data
+  if (!hasSM) {
+    lines.push('');
+    lines.push('<b>\uD83E\uDD13 Smart Money DEX (24h)</b>');
+    lines.push('\u2022 Not Available');
+  }
+
+  // Footer with data source
   lines.push('');
-  lines.push(`<a href="${report.nansenUrl}">View on Nansen</a>`);
+  const sourceLabel = report.dataSource === 'both' ? 'Nansen + CoinGecko'
+    : report.dataSource === 'coingecko' ? 'CoinGecko (Nansen analytics unavailable)'
+    : report.dataSource === 'nansen' ? 'Nansen'
+    : 'Limited data';
+  lines.push(`<a href="${report.nansenUrl}">View on Nansen</a> \u2022 ${sourceLabel}`);
 
   return lines.join('\n');
 }
@@ -255,12 +268,17 @@ export function toDiscordEmbed(report: TokenReport): EmbedBuilder {
   const changeEmoji = (pct ?? 0) >= 0 ? '\uD83D\uDFE2' : '\uD83D\uDD34';
   const changeStr = pct !== null ? ` ${changeEmoji} ${formatPriceChange(pct)} (24H)` : '';
 
+  const sourceLabel = report.dataSource === 'both' ? 'Nansen + CoinGecko'
+    : report.dataSource === 'coingecko' ? 'CoinGecko'
+    : report.dataSource === 'nansen' ? 'Nansen'
+    : 'Limited data';
+
   const embed = new EmbedBuilder()
     .setTitle(`${t.name} (${t.symbol})${changeStr}`)
     .setURL(report.nansenUrl)
     .setColor(color)
     .setDescription(`${chainEmoji(t.chain)} **${capitalize(t.chain)}**\nCA: \`${t.address}\``)
-    .setFooter({ text: 'Data from Nansen' })
+    .setFooter({ text: `Data from ${sourceLabel}` })
     .setTimestamp();
 
   // Market data fields (inline)
@@ -286,34 +304,39 @@ export function toDiscordEmbed(report: TokenReport): EmbedBuilder {
     embed.addFields({ name: '\uD83D\uDC65 Holders', value: report.holderCount.toLocaleString(), inline: true });
   }
 
-  // Holder Flows (unified: smart money + flow segments)
-  const hasSM = hasSmartMoneyData(report.smartMoney);
+  // Holder Flows
+  const hasSMDiscord = hasSmartMoneyData(report.smartMoney);
+  const flowLines: string[] = [];
 
-  if (hasSM || report.flows.length > 0) {
-    const flowLines: string[] = [];
-
+  if (report.flows.length > 0) {
     flowLines.push(...report.flows.map(formatFlowLine));
+  } else {
+    flowLines.push('Not Available');
+  }
 
-    if (hasSM && report.smartMoney.buySell) {
-      const bs = report.smartMoney.buySell;
-      flowLines.push(`\uD83D\uDCB1 DEX Activity: \uD83D\uDFE2 ${formatUsd(bs.boughtVolumeUsd)} bought / \uD83D\uDD34 ${formatUsd(bs.soldVolumeUsd)} sold`);
-    }
-    embed.addFields({ name: '\uD83D\uDD04 Holder Flows (24h)', value: flowLines.join('\n'), inline: false });
+  if (hasSMDiscord && report.smartMoney.buySell) {
+    const bs = report.smartMoney.buySell;
+    flowLines.push(`\uD83D\uDCB1 DEX Activity: \uD83D\uDFE2 ${formatUsd(bs.boughtVolumeUsd)} bought / \uD83D\uDD34 ${formatUsd(bs.soldVolumeUsd)} sold`);
+  }
+  embed.addFields({ name: '\uD83D\uDD04 Holder Flows (24h)', value: flowLines.join('\n'), inline: false });
 
-    if (report.smartMoney.topBuyers.length > 0) {
-      embed.addFields({
-        name: '\uD83D\uDFE2 Top Buyers',
-        value: formatTradersDiscord(report.smartMoney.topBuyers, 'BUY'),
-        inline: true,
-      });
-    }
-    if (report.smartMoney.topSellers.length > 0) {
-      embed.addFields({
-        name: '\uD83D\uDD34 Top Sellers',
-        value: formatTradersDiscord(report.smartMoney.topSellers, 'SELL'),
-        inline: true,
-      });
-    }
+  if (report.smartMoney.topBuyers.length > 0) {
+    embed.addFields({
+      name: '\uD83D\uDFE2 Top Buyers',
+      value: formatTradersDiscord(report.smartMoney.topBuyers, 'BUY'),
+      inline: true,
+    });
+  }
+  if (report.smartMoney.topSellers.length > 0) {
+    embed.addFields({
+      name: '\uD83D\uDD34 Top Sellers',
+      value: formatTradersDiscord(report.smartMoney.topSellers, 'SELL'),
+      inline: true,
+    });
+  }
+
+  if (!hasSMDiscord) {
+    embed.addFields({ name: '\uD83E\uDD13 Smart Money DEX (24h)', value: 'Not Available', inline: false });
   }
 
   return embed;
@@ -331,6 +354,23 @@ function chainEmoji(chain: string): string {
     avalanche: '\uD83D\uDD3A', // 🔺
     tron: '\u26A1',         // ⚡
     fantom: '\uD83D\uDC7B', // 👻
+    blast: '\uD83D\uDFE1',  // 🟡
+    scroll: '\uD83D\uDCDC', // 📜
+    linea: '\u2796',        // ➖
+    mantle: '\uD83D\uDFE2', // 🟢
+    ronin: '\u2694\uFE0F',  // ⚔️
+    sei: '\uD83C\uDF0A',    // 🌊
+    zksync: '\uD83D\uDD37', // 🔷
+    unichain: '\uD83E\uDD84', // 🦄
+    sonic: '\uD83D\uDC9C',  // 💜
+    monad: '\uD83D\uDFE3',  // 🟣
+    near: '\uD83C\uDF10',   // 🌐
+    starknet: '\u2B50',     // ⭐
+    sui: '\uD83D\uDCA7',    // 💧
+    ton: '\uD83D\uDC8E',    // 💎
+    hyperevm: '\uD83D\uDFE2', // 🟢
+    plasma: '\u26A1',       // ⚡
+    iotaevm: '\uD83C\uDF10', // 🌐
   };
   return map[chain] || '\uD83D\uDD17'; // 🔗 fallback
 }

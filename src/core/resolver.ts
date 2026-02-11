@@ -25,6 +25,23 @@ const PLATFORM_TO_CHAIN: Record<string, string> = {
   base: 'base',
   tron: 'tron',
   fantom: 'fantom',
+  blast: 'blast',
+  scroll: 'scroll',
+  linea: 'linea',
+  mantle: 'mantle',
+  ronin: 'ronin',
+  'sei-v2': 'sei',
+  zksync: 'zksync',
+  unichain: 'unichain',
+  sonic: 'sonic',
+  'iota-evm': 'iotaevm',
+  hyperevm: 'hyperevm',
+  'near-protocol': 'near',
+  starknet: 'starknet',
+  sui: 'sui',
+  'the-open-network': 'ton',
+  plasma: 'plasma',
+  monad: 'monad',
 };
 
 const CHAIN_TO_PLATFORM: Record<string, string> = Object.fromEntries(
@@ -76,6 +93,48 @@ const NATIVE_TOKEN_MAP: Record<string, ResolvedToken> = {
     name: 'Fantom',
     symbol: 'FTM',
     chain: 'fantom',
+    address: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+  },
+  monad: {
+    name: 'Monad',
+    symbol: 'MON',
+    chain: 'monad',
+    address: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+  },
+  'the-open-network': {
+    name: 'Toncoin',
+    symbol: 'TON',
+    chain: 'ton',
+    address: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+  },
+  sui: {
+    name: 'Sui',
+    symbol: 'SUI',
+    chain: 'sui',
+    address: '0x2::sui::SUI',
+  },
+  near: {
+    name: 'NEAR Protocol',
+    symbol: 'NEAR',
+    chain: 'near',
+    address: 'wrap.near',
+  },
+  mantle: {
+    name: 'Mantle',
+    symbol: 'MNT',
+    chain: 'mantle',
+    address: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+  },
+  sonic: {
+    name: 'Sonic',
+    symbol: 'S',
+    chain: 'sonic',
+    address: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+  },
+  sei: {
+    name: 'Sei',
+    symbol: 'SEI',
+    chain: 'sei',
     address: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
   },
 };
@@ -194,10 +253,12 @@ async function resolveBySymbol(parsed: ParsedInput): Promise<ResolvedToken> {
 async function resolveByAddress(parsed: ParsedInput): Promise<ResolvedToken> {
   const chain = parsed.chainHint || parsed.inferredChain;
 
-  // For EVM addresses, try common chains
+  // For EVM addresses, try common chains (most popular first)
   const chainsToTry = chain
     ? [chain]
-    : ['ethereum', 'base', 'arbitrum', 'polygon', 'optimism', 'bnb', 'avalanche'];
+    : ['ethereum', 'base', 'arbitrum', 'polygon', 'optimism', 'bnb', 'avalanche',
+       'scroll', 'linea', 'mantle', 'zksync', 'blast', 'sonic', 'monad', 'ronin',
+       'sei', 'fantom', 'unichain', 'hyperevm', 'iotaevm', 'plasma'];
 
   for (const tryChain of chainsToTry) {
     const platKey = CHAIN_TO_PLATFORM[tryChain];

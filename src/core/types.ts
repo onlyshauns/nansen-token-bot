@@ -60,4 +60,7 @@ export interface TokenReport {
 
   // Links
   nansenUrl: string;
+
+  // Data source indicator
+  dataSource: 'nansen' | 'coingecko' | 'both' | 'none';
 }

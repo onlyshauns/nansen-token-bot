@@ -169,7 +169,7 @@ export function toTelegramHTML(report: TokenReport): string {
   const changeEmoji = (pct ?? 0) >= 0 ? '\uD83D\uDFE2' : '\uD83D\uDD34'; // 🟢 / 🔴
   const changeStr = pct !== null ? ` ${changeEmoji} ${formatPriceChange(pct)} (24H)` : '';
   lines.push(`<b>${t.name} (${t.symbol})</b>${changeStr}`);
-  lines.push(`${chainEmoji(t.chain)} ${capitalize(t.chain)}`);
+  lines.push(`\uD83D\uDD17 Chain: ${chainDisplayName(t.chain)}`);
   lines.push(`CA: <code>${t.address}</code>`);
   lines.push('');
 
@@ -247,13 +247,9 @@ export function toTelegramHTML(report: TokenReport): string {
     lines.push('\u2022 Not Available');
   }
 
-  // Footer with data source
+  // Footer
   lines.push('');
-  const sourceLabel = report.dataSource === 'both' ? 'Nansen + CoinGecko'
-    : report.dataSource === 'coingecko' ? 'CoinGecko (Nansen analytics unavailable)'
-    : report.dataSource === 'nansen' ? 'Nansen'
-    : 'Limited data';
-  lines.push(`<a href="${report.nansenUrl}">View on Nansen</a> \u2022 ${sourceLabel}`);
+  lines.push(`<a href="${report.nansenUrl}">View on Nansen</a>`);
 
   return lines.join('\n');
 }
@@ -346,6 +342,39 @@ export function toDiscordEmbed(report: TokenReport): EmbedBuilder {
   }
 
   return embed;
+}
+
+function chainDisplayName(chain: string): string {
+  const map: Record<string, string> = {
+    ethereum: 'ETH',
+    solana: 'SOL',
+    base: 'BASE',
+    bnb: 'BNB',
+    arbitrum: 'ARB',
+    polygon: 'POLYGON',
+    optimism: 'OP',
+    avalanche: 'AVAX',
+    tron: 'TRON',
+    fantom: 'FTM',
+    blast: 'BLAST',
+    scroll: 'SCROLL',
+    linea: 'LINEA',
+    mantle: 'MANTLE',
+    ronin: 'RONIN',
+    sei: 'SEI',
+    zksync: 'ZKSYNC',
+    unichain: 'UNICHAIN',
+    sonic: 'SONIC',
+    monad: 'MONAD',
+    near: 'NEAR',
+    starknet: 'STARKNET',
+    sui: 'SUI',
+    ton: 'TON',
+    hyperevm: 'HYPE',
+    plasma: 'PLASMA',
+    iotaevm: 'IOTA',
+  };
+  return map[chain] || chain.toUpperCase();
 }
 
 function chainEmoji(chain: string): string {

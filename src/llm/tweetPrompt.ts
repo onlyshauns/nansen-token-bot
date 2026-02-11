@@ -99,22 +99,29 @@ export async function generateScheduledTweet(
 
 /**
  * Generate a reply tweet for a token analysis request.
+ * Optional focusContext (e.g. "smart money", "whales") steers the LLM to
+ * emphasize that angle in the reply.
  */
 export async function generateReplyTweet(
   client: AnthropicClient,
   reportText: string,
   userQuery: string,
-  userName: string
+  userName: string,
+  focusContext?: string
 ): Promise<string[]> {
   try {
+    let prompt =
+      `@${userName} asked: "${userQuery}"\n\n` +
+      `Here is the token report data:\n${reportText}\n\n`;
+
+    if (focusContext) {
+      prompt += `The user is specifically asking about ${focusContext} activity. Focus your reply on ${focusContext}-related data from the report.\n\n`;
+    }
+
+    prompt += `Write a reply with the key analysis.`;
+
     const reply = await client.createMessage(REPLY_TWEET_PROMPT, [
-      {
-        role: 'user',
-        content:
-          `@${userName} asked: "${userQuery}"\n\n` +
-          `Here is the token report data:\n${reportText}\n\n` +
-          `Write a reply with the key analysis.`,
-      },
+      { role: 'user', content: prompt },
     ], { maxTokens: 250 });
 
     // Split on --- separator for multi-tweet replies

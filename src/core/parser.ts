@@ -192,3 +192,84 @@ export function extractTokenQuery(text: string): string | null {
 
   return null;
 }
+
+// ============================================
+// Keyword-Based Query Detection (Twitter only)
+// ============================================
+
+const KEYWORD_TRIGGERS = [
+  'smart money',
+  'whales',
+  'whale',
+  'flows',
+  'flow',
+  'holders',
+  'buying',
+  'selling',
+  'accumulating',
+  'dumping',
+];
+
+/** Map canonical chain name → native token symbol for keyword queries */
+const CHAIN_TO_SYMBOL: Record<string, string> = {
+  ethereum: 'ETH',
+  solana: 'SOL',
+  bnb: 'BNB',
+  arbitrum: 'ARB',
+  optimism: 'OP',
+  polygon: 'MATIC',
+  avalanche: 'AVAX',
+  base: 'ETH',
+  fantom: 'FTM',
+  tron: 'TRX',
+  sui: 'SUI',
+  near: 'NEAR',
+  ton: 'TON',
+  hyperevm: 'HYPE',
+  sei: 'SEI',
+  mantle: 'MNT',
+  sonic: 'S',
+  monad: 'MON',
+  blast: 'ETH',
+  scroll: 'ETH',
+  linea: 'ETH',
+  zksync: 'ETH',
+  unichain: 'ETH',
+  ronin: 'RON',
+  starknet: 'STRK',
+  plasma: 'ETH',
+  iotaevm: 'IOTA',
+};
+
+/**
+ * Fallback for Twitter mentions that don't contain $SYMBOL or contract address.
+ * Detects keyword + chain/token name combos like "smart money on Solana".
+ * Returns { query, context } or null if no match.
+ */
+export function extractKeywordQuery(text: string): { query: string; context: string } | null {
+  const lower = text.toLowerCase();
+
+  // 1. Find a keyword trigger
+  let matchedKeyword: string | null = null;
+  for (const kw of KEYWORD_TRIGGERS) {
+    if (lower.includes(kw)) {
+      matchedKeyword = kw;
+      break;
+    }
+  }
+  if (!matchedKeyword) return null;
+
+  // 2. Find a chain/token name in the text
+  const words = lower.replace(/[^a-z0-9\s]/g, '').split(/\s+/);
+  for (const word of words) {
+    const chain = CHAIN_ALIASES[word];
+    if (chain) {
+      const symbol = CHAIN_TO_SYMBOL[chain];
+      if (symbol) {
+        return { query: `$${symbol}`, context: matchedKeyword };
+      }
+    }
+  }
+
+  return null;
+}

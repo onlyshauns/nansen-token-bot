@@ -16,7 +16,7 @@ import { scanWatchlist } from '../twitter/scanner.js';
 import { wasRecentlyTweeted, recordTweet, getLastMentionId, setLastMentionId, setLastScanAt } from '../twitter/state.js';
 import { canTweet, canRead, recordTweetUsage, recordReadUsage, getUsageSummary, isNearLimit } from '../twitter/rateLimiter.js';
 import { generateScheduledTweet, generateReplyTweet } from '../llm/tweetPrompt.js';
-import { extractTokenQuery, parseUserInput } from '../core/parser.js';
+import { extractTokenQuery, extractKeywordQuery, parseUserInput } from '../core/parser.js';
 import { resolveToken } from '../core/resolver.js';
 import { buildTokenReport } from '../core/lookup.js';
 import { toTweetText } from './render.js';
@@ -196,10 +196,19 @@ async function runMentionPoll(
         }
 
         // Extract token query from mention text
-        const query = extractTokenQuery(mention.text);
+        let query = extractTokenQuery(mention.text);
+        let focusContext: string | undefined;
+
+        // Fallback: keyword-based detection (e.g. "smart money on Solana")
         if (!query) {
-          console.log(`[Twitter] Mention ${mention.id}: no token query found, skipping`);
-          continue;
+          const kwResult = extractKeywordQuery(mention.text);
+          if (!kwResult) {
+            console.log(`[Twitter] Mention ${mention.id}: no token query found, skipping`);
+            continue;
+          }
+          query = kwResult.query;
+          focusContext = kwResult.context;
+          console.log(`[Twitter] Mention ${mention.id}: keyword match "${focusContext}" → ${query}`);
         }
 
         console.log(`[Twitter] Mention ${mention.id}: query="${query}"`);
@@ -229,7 +238,7 @@ async function runMentionPoll(
         // Generate reply via LLM
         const reportText = toTweetText(report).join('\n\n');
         const authorName = mention.author_id || 'anon';
-        const replyParts = await generateReplyTweet(anthropic, reportText, query, authorName);
+        const replyParts = await generateReplyTweet(anthropic, reportText, query, authorName, focusContext);
 
         if (replyParts.length === 0) {
           console.warn(`[Twitter] LLM failed to generate reply for ${query}`);

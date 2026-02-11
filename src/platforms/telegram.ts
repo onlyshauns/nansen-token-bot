@@ -308,6 +308,65 @@ export async function startTelegram(token: string): Promise<void> {
     );
   });
 
+  // /tweettest command — preview what the Twitter bot would tweet
+  bot.command('tweettest', async (ctx) => {
+    const userId = ctx.from?.id;
+    if (!userId) return;
+
+    const nansen = getNansenForUser(ctx);
+    if (!nansen) {
+      await ctx.reply(ONBOARDING_MSG, { parse_mode: 'HTML', link_preview_options: { is_disabled: true } });
+      return;
+    }
+
+    await ctx.reply('\uD83D\uDD0D Scanning watchlist for interesting activity... (this takes ~1min)');
+    try {
+      await ctx.api.sendChatAction(ctx.chat!.id, 'typing');
+    } catch { /* ignore */ }
+
+    try {
+      const { getWatchlistTokens } = await import('../twitter/watchlist.js');
+      const { scanWatchlist } = await import('../twitter/scanner.js');
+      const { toTweetText } = await import('./render.js');
+
+      const tokens = getWatchlistTokens();
+      const results = await scanWatchlist(tokens, nansen, 0);
+
+      if (results.length === 0) {
+        await ctx.reply('No scan results. Nansen may be having issues.');
+        return;
+      }
+
+      // Summary of all scored tokens
+      const summary = results
+        .slice(0, 10)
+        .map((r) => `$${r.token.symbol.padEnd(8)} Score: ${String(r.interestScore).padStart(3)}  ${r.signals.join(', ') || '(no signals)'}`)
+        .join('\n');
+
+      await ctx.reply(
+        `<b>\uD83D\uDCCA Watchlist Scan Results</b>\n\n<pre>${escapeHtml(summary)}</pre>`,
+        { parse_mode: 'HTML' }
+      );
+
+      // Generate tweets for the top result
+      const top = results[0];
+      const tweetParts = toTweetText(top.report);
+
+      let tweetPreview = `<b>\uD83D\uDC26 Tweet Preview for $${escapeHtml(top.token.symbol)}</b>\n`;
+      tweetPreview += `Score: ${top.interestScore} | Data: ${top.report.dataSource}\n\n`;
+      for (const [i, part] of tweetParts.entries()) {
+        tweetPreview += `<b>[Tweet ${i + 1}/${tweetParts.length}]</b> (${part.length} chars)\n`;
+        tweetPreview += `<pre>${escapeHtml(part)}</pre>\n\n`;
+      }
+
+      await ctx.reply(tweetPreview, { parse_mode: 'HTML' });
+    } catch (error) {
+      console.error('[Telegram] tweettest error:', error);
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      await ctx.reply(`\u274C Tweet test failed: ${escapeHtml(msg)}`);
+    }
+  });
+
   // /token command
   bot.command('token', async (ctx) => {
     const query = ctx.match;

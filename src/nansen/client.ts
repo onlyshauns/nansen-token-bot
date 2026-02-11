@@ -78,6 +78,17 @@ export interface NansenSmartMoneyTrader {
   trade_volume_usd: number;
 }
 
+/** Result from the token screener search */
+export interface NansenTokenSearchResult {
+  tokenAddress: string;
+  tokenSymbol: string;
+  tokenName: string;
+  chain: string;
+  priceUsd?: number;
+  volume24hUsd?: number;
+  marketCapUsd?: number;
+}
+
 export class NansenClient {
   private baseUrl = 'https://api.nansen.ai/api/v1';
   private apiKey: string;
@@ -213,6 +224,66 @@ export class NansenClient {
       return { buyers, sellers };
     } catch (error) {
       console.error('[Nansen] getSmartMoneyBuySell error:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Search for a token by symbol using the Nansen token screener.
+   * Returns the best match (highest volume) across specified chains.
+   * Useful as fallback when CoinGecko doesn't list a token.
+   */
+  async searchToken(
+    symbol: string,
+    chain?: string
+  ): Promise<NansenTokenSearchResult | null> {
+    try {
+      // Search across popular chains, or a specific chain if given
+      const chains = chain
+        ? [chain]
+        : ['ethereum', 'solana', 'base', 'bnb', 'arbitrum'];
+
+      const response = await this.post<{
+        data?: Array<{
+          token_address?: string;
+          token_symbol?: string;
+          chain?: string;
+          price_usd?: number;
+          volume?: number;
+          market_cap_usd?: number;
+        }>;
+      }>('/tgm/token-screener', {
+        chains,
+        timeframe: '24h',
+        filters: {
+          token_symbol: symbol.toUpperCase(),
+        },
+        pagination: { page: 1, per_page: 10 },
+        order_by: [{ field: 'volume', direction: 'desc' }],
+      });
+
+      const results = response.data || [];
+      if (results.length === 0) return null;
+
+      // Exact symbol match first, then best by volume
+      const exact = results.find(
+        (r) => r.token_symbol?.toUpperCase() === symbol.toUpperCase()
+      );
+      const best = exact || results[0];
+
+      if (!best.token_address || !best.chain) return null;
+
+      return {
+        tokenAddress: best.token_address,
+        tokenSymbol: best.token_symbol || symbol.toUpperCase(),
+        tokenName: symbol.toUpperCase(), // screener doesn't return token_name
+        chain: best.chain,
+        priceUsd: best.price_usd,
+        volume24hUsd: best.volume,
+        marketCapUsd: best.market_cap_usd,
+      };
+    } catch (error) {
+      console.error('[Nansen] searchToken error:', error);
       return null;
     }
   }

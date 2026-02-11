@@ -90,7 +90,7 @@ async function handleSlashCommand(
   await interaction.deferReply();
 
   try {
-    const token = await resolveToken(parsed);
+    const token = await resolveToken(parsed, nansen);
     const report = await buildTokenReport(token, nansen);
     const embed = toDiscordEmbed(report);
     await interaction.editReply({ embeds: [embed] });
@@ -112,7 +112,7 @@ async function handleMessage(message: Message, nansen: NansenClient): Promise<vo
       await message.channel.sendTyping();
     }
 
-    const token = await resolveToken(parsed);
+    const token = await resolveToken(parsed, nansen);
     const report = await buildTokenReport(token, nansen);
     const embed = toDiscordEmbed(report);
     await message.reply({ embeds: [embed] });

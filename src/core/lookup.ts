@@ -229,7 +229,8 @@ export async function buildTokenReport(
   };
 
   // If token info returned name/symbol, update from Nansen's data
-  if (tokenInfo?.name && token.name === 'Unknown Token') {
+  // Also update if current name is just the symbol (from Nansen screener fallback)
+  if (tokenInfo?.name && (token.name === 'Unknown Token' || token.name === token.symbol)) {
     report.token = { ...token, name: tokenInfo.name };
   }
   if (tokenInfo?.symbol) {

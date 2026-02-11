@@ -1,4 +1,5 @@
 import type { ParsedInput, ResolvedToken } from './types.js';
+import type { NansenClient } from '../nansen/client.js';
 
 interface CoinGeckoSearchResult {
   id: string;
@@ -170,16 +171,23 @@ const NATIVE_TOKEN_MAP: Record<string, ResolvedToken> = {
 /**
  * Resolve a parsed user input to a concrete token with chain + address.
  * Uses CoinGecko search API (free, no key needed) for symbol lookups.
+ * Falls back to Nansen token screener when CoinGecko doesn't list the token.
  * For contract addresses, uses CoinGecko contract lookup.
  */
-export async function resolveToken(parsed: ParsedInput): Promise<ResolvedToken> {
+export async function resolveToken(
+  parsed: ParsedInput,
+  nansen?: NansenClient
+): Promise<ResolvedToken> {
   if (parsed.isContractAddress) {
     return resolveByAddress(parsed);
   }
-  return resolveBySymbol(parsed);
+  return resolveBySymbol(parsed, nansen);
 }
 
-async function resolveBySymbol(parsed: ParsedInput): Promise<ResolvedToken> {
+async function resolveBySymbol(
+  parsed: ParsedInput,
+  nansen?: NansenClient
+): Promise<ResolvedToken> {
   // Search CoinGecko for the symbol
   const res = await fetch(
     `https://api.coingecko.com/api/v3/search?query=${encodeURIComponent(parsed.query)}`
@@ -190,6 +198,11 @@ async function resolveBySymbol(parsed: ParsedInput): Promise<ResolvedToken> {
   const coins = data.coins || [];
 
   if (coins.length === 0) {
+    // CoinGecko doesn't know this token — try Nansen as fallback
+    if (nansen) {
+      const nansenResult = await tryNansenSearch(parsed, nansen);
+      if (nansenResult) return nansenResult;
+    }
     throw new Error(`No token found matching "${parsed.query}"`);
   }
 
@@ -272,10 +285,43 @@ async function resolveBySymbol(parsed: ParsedInput): Promise<ResolvedToken> {
     }
   }
 
+  // CoinGecko found the coin but no contract address — try Nansen
+  if (nansen) {
+    const nansenResult = await tryNansenSearch(parsed, nansen);
+    if (nansenResult) return nansenResult;
+  }
+
   throw new Error(
     `Found "${parsed.query}" but no contract address on supported chains. ` +
     `Try providing the contract address directly.`
   );
+}
+
+/**
+ * Try resolving a token via Nansen's token screener.
+ * Used as fallback when CoinGecko doesn't have the token.
+ */
+async function tryNansenSearch(
+  parsed: ParsedInput,
+  nansen: NansenClient
+): Promise<ResolvedToken | null> {
+  try {
+    const chain = parsed.chainHint || parsed.inferredChain || undefined;
+    console.log(`[Resolver] CoinGecko miss for "${parsed.query}", trying Nansen search...`);
+    const result = await nansen.searchToken(parsed.query, chain);
+    if (result) {
+      console.log(`[Resolver] Nansen found: ${result.tokenSymbol} on ${result.chain} (${result.tokenAddress})`);
+      return {
+        name: result.tokenName,
+        symbol: result.tokenSymbol.toUpperCase(),
+        chain: result.chain,
+        address: result.tokenAddress,
+      };
+    }
+  } catch (error) {
+    console.error('[Resolver] Nansen search fallback failed:', error);
+  }
+  return null;
 }
 
 async function resolveByAddress(parsed: ParsedInput): Promise<ResolvedToken> {

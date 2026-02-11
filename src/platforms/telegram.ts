@@ -550,7 +550,7 @@ async function handleTokenQuery(ctx: Context, rawQuery: string, nansen: NansenCl
   try {
     // Resolve token
     console.log(`[Telegram] Resolving "${parsed.query}"...`);
-    const token = await resolveToken(parsed);
+    const token = await resolveToken(parsed, nansen);
     console.log(`[Telegram] Resolved: ${token.symbol} on ${token.chain}`);
 
     // Show typing while fetching data

@@ -254,7 +254,7 @@ async function runMentionPoll(
 
         let resolved;
         try {
-          resolved = await resolveToken(parsed);
+          resolved = await resolveToken(parsed, nansen);
         } catch {
           console.log(`[Twitter] Could not resolve token for query: ${query}`);
           continue;

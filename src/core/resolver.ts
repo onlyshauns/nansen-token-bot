@@ -137,6 +137,18 @@ const NATIVE_TOKEN_MAP: Record<string, ResolvedToken> = {
     chain: 'sei',
     address: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
   },
+  hyperliquid: {
+    name: 'Hyperliquid',
+    symbol: 'HYPE',
+    chain: 'arbitrum',
+    address: '0x6249a78e4c8c89d04c70f28d6e9a62a94a3fbce3',
+  },
+  tron: {
+    name: 'TRON',
+    symbol: 'TRX',
+    chain: 'tron',
+    address: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+  },
 };
 
 /**

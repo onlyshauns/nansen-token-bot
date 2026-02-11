@@ -381,6 +381,93 @@ function chainEmoji(chain: string): string {
   return map[chain] || '\uD83D\uDD17'; // 🔗 fallback
 }
 
+// ============================================
+// Twitter/X Plain Text Renderer
+// ============================================
+
+/**
+ * Convert a TokenReport into a tweet thread (array of ≤280-char strings).
+ * Tweet 1: Price / market data
+ * Tweet 2: Smart money / holder flows
+ * Tweet 3: Top buyers/sellers (if available)
+ */
+export function toTweetText(report: TokenReport): string[] {
+  const sym = `$${report.token.symbol}`;
+  const tweets: string[] = [];
+
+  // --- Tweet 1: Market data ---
+  const lines1: string[] = [];
+  let header = sym;
+  if (report.priceUsd !== null) header += ` | ${formatPrice(report.priceUsd)}`;
+  if (report.priceChange24h !== null) header += ` (${formatPriceChange(report.priceChange24h)})`;
+  lines1.push(header);
+
+  if (report.marketCapUsd !== null) lines1.push(`Mcap: ${formatUsd(report.marketCapUsd)}`);
+  if (report.volume24hUsd !== null) lines1.push(`24h Vol: ${formatUsd(report.volume24hUsd)}`);
+  if (report.liquidityUsd !== null) lines1.push(`Liq: ${formatUsd(report.liquidityUsd)}`);
+
+  tweets.push(fitTweet(lines1.join('\n')));
+
+  // --- Tweet 2: Flows + Smart Money ---
+  const lines2: string[] = [];
+  lines2.push(`${sym} flows (24h):`);
+
+  const interestingFlows = report.flows.filter(
+    (f) => f.walletCount > 0 && f.netFlowUsd !== 0
+  );
+
+  if (interestingFlows.length > 0) {
+    for (const flow of interestingFlows) {
+      const dir = flow.netFlowUsd >= 0 ? 'IN' : 'OUT';
+      const ratio =
+        flow.avgFlowUsd !== 0
+          ? ` (${Math.abs(flow.netFlowUsd / flow.avgFlowUsd).toFixed(1)}x avg)`
+          : '';
+      lines2.push(`${flow.name}: ${formatUsd(Math.abs(flow.netFlowUsd))} ${dir}${ratio}`);
+    }
+  }
+
+  if (report.smartMoney.buySell) {
+    const bs = report.smartMoney.buySell;
+    const sentiment = bs.netFlowUsd >= 0 ? 'bullish' : 'bearish';
+    lines2.push(`SM DEX: ${formatUsd(bs.boughtVolumeUsd)} bought / ${formatUsd(bs.soldVolumeUsd)} sold (${sentiment})`);
+  }
+
+  if (lines2.length > 1) {
+    tweets.push(fitTweet(lines2.join('\n')));
+  }
+
+  // --- Tweet 3: Top buyers/sellers (if any) ---
+  const lines3: string[] = [];
+  if (report.smartMoney.topBuyers.length > 0) {
+    lines3.push(`${sym} top buyers:`);
+    for (const t of report.smartMoney.topBuyers.slice(0, 3)) {
+      lines3.push(`${t.label} — ${formatUsd(t.volumeUsd)}`);
+    }
+  }
+  if (report.smartMoney.topSellers.length > 0) {
+    if (lines3.length > 0) lines3.push('');
+    lines3.push('Top sellers:');
+    for (const t of report.smartMoney.topSellers.slice(0, 3)) {
+      lines3.push(`${t.label} — ${formatUsd(t.volumeUsd)}`);
+    }
+  }
+
+  if (lines3.length > 0) {
+    tweets.push(fitTweet(lines3.join('\n')));
+  }
+
+  return tweets;
+}
+
+/**
+ * Truncate text to fit a single tweet (280 chars).
+ */
+function fitTweet(text: string): string {
+  if (text.length <= 280) return text;
+  return text.slice(0, 277) + '...';
+}
+
 function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }

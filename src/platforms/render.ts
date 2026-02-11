@@ -164,69 +164,96 @@ export function toTelegramHTML(report: TokenReport): string {
   const t = report.token;
   const lines: string[] = [];
 
-  // Header — name, price, change all on one line
+  // Header
   const pct = report.priceChange24h;
   const changeEmoji = (pct ?? 0) >= 0 ? '\uD83D\uDFE2' : '\uD83D\uDD34'; // 🟢 / 🔴
-  const priceStr = report.priceUsd !== null ? ` \u2014 ${formatPrice(report.priceUsd)}` : '';
-  const changeStr = pct !== null ? ` ${changeEmoji} ${formatPriceChange(pct)}` : '';
-  lines.push(`<b>${t.name} ($${t.symbol})</b>${priceStr}${changeStr}`);
-  lines.push(`${chainEmoji(t.chain)} ${capitalize(t.chain)} \u2022 <code>${t.address}</code>`);
+  const changeStr = pct !== null ? ` ${changeEmoji} ${formatPriceChange(pct)} (24H)` : '';
+  lines.push(`<b>${t.name} (${t.symbol})</b>${changeStr}`);
+  lines.push(`${chainEmoji(t.chain)} ${capitalize(t.chain)}`);
+  lines.push(`CA: <code>${t.address}</code>`);
+  lines.push('');
 
-  // Market data — compact rows
-  const marketParts: string[] = [];
-  if (report.marketCapUsd !== null) marketParts.push(`Mcap ${formatUsd(report.marketCapUsd)}`);
-  if (report.fdvUsd !== null && report.fdvUsd !== report.marketCapUsd) marketParts.push(`FDV ${formatUsd(report.fdvUsd)}`);
-  if (report.volume24hUsd !== null) marketParts.push(`Vol ${formatUsd(report.volume24hUsd)}`);
-  if (report.liquidityUsd !== null) marketParts.push(`Liq ${formatUsd(report.liquidityUsd)}`);
-  if (marketParts.length > 0) {
-    lines.push(marketParts.join(' \u2022 '));
+  // Market data
+  if (report.priceUsd !== null) {
+    const changeTag = report.priceChange24h !== null
+      ? ` (${formatPriceChange(report.priceChange24h)})`
+      : '';
+    lines.push(`\uD83D\uDCB0 Price: ${formatPrice(report.priceUsd)}${changeTag}`);
+  }
+  if (report.marketCapUsd !== null) {
+    lines.push(`\uD83C\uDFDB\uFE0F Mcap: ${formatUsd(report.marketCapUsd)}`);
+  }
+  if (report.fdvUsd !== null && report.fdvUsd !== report.marketCapUsd) {
+    lines.push(`\uD83D\uDC8E FDV: ${formatUsd(report.fdvUsd)}`);
+  }
+  if (report.volume24hUsd !== null) {
+    lines.push(`\uD83D\uDCC8 24h Vol: ${formatUsd(report.volume24hUsd)}`);
+  }
+  if (report.liquidityUsd !== null) {
+    lines.push(`\uD83D\uDCA7 Liq: ${formatUsd(report.liquidityUsd)}`);
+  }
+  if (report.tokenAgeDays !== null) {
+    lines.push(`\uD83D\uDD52 Age: ${formatAge(report.tokenAgeDays)}`);
+  }
+  if (report.holderCount !== null) {
+    lines.push(`\uD83D\uDC65 Holders: ${report.holderCount.toLocaleString()}`);
   }
 
-  const metaParts: string[] = [];
-  if (report.holderCount !== null) metaParts.push(`${report.holderCount.toLocaleString()} holders`);
-  if (report.tokenAgeDays !== null) metaParts.push(`${formatAge(report.tokenAgeDays)} old`);
-  if (metaParts.length > 0) {
-    lines.push(metaParts.join(' \u2022 '));
-  }
+  // Holder Flows section
+  const hasSM = hasSmartMoneyData(report.smartMoney);
+  const hasFlows = report.flows.length > 0;
 
-  // Holder Flows — only show non-zero segments
-  const activeFlows = report.flows.filter(f => f.walletCount > 0 || f.netFlowUsd !== 0);
-  if (activeFlows.length > 0) {
-    lines.push('');
-    lines.push('<b>\uD83D\uDD04 Flows (24h)</b>');
-    for (const flow of activeFlows) {
+  lines.push('');
+  lines.push('<b>\uD83D\uDD04 Holder Flows (24h)</b>');
+
+  if (hasFlows) {
+    for (const flow of report.flows) {
       lines.push(formatFlowLine(flow));
     }
+  } else {
+    lines.push('\u2022 Not Available');
   }
 
-  // Smart Money DEX — combined section
-  const hasSM = hasSmartMoneyData(report.smartMoney);
-  if (hasSM) {
+  // Smart Money DEX buy/sell summary
+  if (hasSM && report.smartMoney.buySell) {
+    const bs = report.smartMoney.buySell;
+    lines.push(`\uD83D\uDCB1 DEX Activity: \uD83D\uDFE2 ${formatUsd(bs.boughtVolumeUsd)} bought / \uD83D\uDD34 ${formatUsd(bs.soldVolumeUsd)} sold`);
+  }
+
+  // Top Buyers
+  if (report.smartMoney.topBuyers.length > 0) {
     lines.push('');
-    lines.push('<b>\uD83E\uDD13 Smart Money DEX</b>');
-    if (report.smartMoney.buySell) {
-      const bs = report.smartMoney.buySell;
-      const netEmoji = bs.netFlowUsd >= 0 ? '\uD83D\uDFE2' : '\uD83D\uDD34';
-      const sentiment = bs.netFlowUsd >= 0 ? 'bullish' : 'bearish';
-      lines.push(`\uD83D\uDFE2 ${formatUsd(bs.boughtVolumeUsd)} bought (${bs.buyerCount}) / \uD83D\uDD34 ${formatUsd(bs.soldVolumeUsd)} sold (${bs.sellerCount}) ${netEmoji} ${sentiment}`);
-    }
-
-    // Top buyers & sellers inline
-    if (report.smartMoney.topBuyers.length > 0) {
-      for (const buyer of report.smartMoney.topBuyers) {
-        lines.push(`  \uD83D\uDFE2 ${buyer.label} \u2014 ${formatUsd(buyer.volumeUsd)}`);
-      }
-    }
-    if (report.smartMoney.topSellers.length > 0) {
-      for (const seller of report.smartMoney.topSellers) {
-        lines.push(`  \uD83D\uDD34 ${seller.label} \u2014 ${formatUsd(seller.volumeUsd)}`);
-      }
+    lines.push('<b>\uD83D\uDFE2 Top Buyers</b>');
+    for (let i = 0; i < report.smartMoney.topBuyers.length; i++) {
+      const t = report.smartMoney.topBuyers[i];
+      lines.push(`${i + 1}. ${t.label} \u2014 ${formatUsd(t.volumeUsd)}`);
     }
   }
 
-  // Footer — just the link
+  // Top Sellers
+  if (report.smartMoney.topSellers.length > 0) {
+    lines.push('');
+    lines.push('<b>\uD83D\uDD34 Top Sellers</b>');
+    for (let i = 0; i < report.smartMoney.topSellers.length; i++) {
+      const t = report.smartMoney.topSellers[i];
+      lines.push(`${i + 1}. ${t.label} \u2014 ${formatUsd(t.volumeUsd)}`);
+    }
+  }
+
+  // Smart Money section — show N/A if no data
+  if (!hasSM) {
+    lines.push('');
+    lines.push('<b>\uD83E\uDD13 Smart Money DEX (24h)</b>');
+    lines.push('\u2022 Not Available');
+  }
+
+  // Footer with data source
   lines.push('');
-  lines.push(`<a href="${report.nansenUrl}">View on Nansen</a>`);
+  const sourceLabel = report.dataSource === 'both' ? 'Nansen + CoinGecko'
+    : report.dataSource === 'coingecko' ? 'CoinGecko (Nansen analytics unavailable)'
+    : report.dataSource === 'nansen' ? 'Nansen'
+    : 'Limited data';
+  lines.push(`<a href="${report.nansenUrl}">View on Nansen</a> \u2022 ${sourceLabel}`);
 
   return lines.join('\n');
 }

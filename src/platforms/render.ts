@@ -393,9 +393,9 @@ function chainEmoji(chain: string): string {
  */
 export function toTweetText(report: TokenReport): string[] {
   const sym = `$${report.token.symbol}`;
-  const tweets: string[] = [];
+  const parts: string[] = [];
 
-  // --- Tweet 1: Market data ---
+  // --- Part 1: Header + Market data + key flows ---
   const lines1: string[] = [];
   let header = sym;
   if (report.priceUsd !== null) header += ` | ${formatPrice(report.priceUsd)}`;
@@ -406,38 +406,54 @@ export function toTweetText(report: TokenReport): string[] {
   if (report.volume24hUsd !== null) lines1.push(`24h Vol: ${formatUsd(report.volume24hUsd)}`);
   if (report.liquidityUsd !== null) lines1.push(`Liq: ${formatUsd(report.liquidityUsd)}`);
 
-  tweets.push(fitTweet(lines1.join('\n')));
-
-  // --- Tweet 2: Flows + Smart Money ---
-  const lines2: string[] = [];
-  lines2.push(`${sym} flows (24h):`);
-
+  // If Tweet 1 is too thin (no market data), fold top flow signals into it
   const interestingFlows = report.flows.filter(
     (f) => f.walletCount > 0 && f.netFlowUsd !== 0
   );
 
-  if (interestingFlows.length > 0) {
-    for (const flow of interestingFlows) {
+  if (lines1.length <= 2 && interestingFlows.length > 0) {
+    lines1.push('');
+    for (const flow of interestingFlows.slice(0, 3)) {
       const dir = flow.netFlowUsd >= 0 ? 'IN' : 'OUT';
-      const ratio =
-        flow.avgFlowUsd !== 0
-          ? ` (${Math.abs(flow.netFlowUsd / flow.avgFlowUsd).toFixed(1)}x avg)`
-          : '';
-      lines2.push(`${flow.name}: ${formatUsd(Math.abs(flow.netFlowUsd))} ${dir}${ratio}`);
+      lines1.push(`${flow.name}: ${formatUsd(Math.abs(flow.netFlowUsd))} ${dir}`);
+    }
+    if (report.smartMoney.buySell) {
+      const bs = report.smartMoney.buySell;
+      const sentiment = bs.netFlowUsd >= 0 ? 'bullish' : 'bearish';
+      lines1.push(`SM DEX: ${formatUsd(bs.boughtVolumeUsd)} bought / ${formatUsd(bs.soldVolumeUsd)} sold (${sentiment})`);
     }
   }
 
-  if (report.smartMoney.buySell) {
-    const bs = report.smartMoney.buySell;
-    const sentiment = bs.netFlowUsd >= 0 ? 'bullish' : 'bearish';
-    lines2.push(`SM DEX: ${formatUsd(bs.boughtVolumeUsd)} bought / ${formatUsd(bs.soldVolumeUsd)} sold (${sentiment})`);
+  parts.push(fitTweet(lines1.join('\n')));
+
+  // --- Part 2: Full flows + Smart Money (skip if already folded above) ---
+  if (lines1.length <= 2 || interestingFlows.length > 0) {
+    const lines2: string[] = [];
+    lines2.push(`${sym} flows (24h):`);
+
+    if (interestingFlows.length > 0) {
+      for (const flow of interestingFlows) {
+        const dir = flow.netFlowUsd >= 0 ? 'IN' : 'OUT';
+        const ratio =
+          flow.avgFlowUsd !== 0
+            ? ` (${Math.abs(flow.netFlowUsd / flow.avgFlowUsd).toFixed(1)}x avg)`
+            : '';
+        lines2.push(`${flow.name}: ${formatUsd(Math.abs(flow.netFlowUsd))} ${dir}${ratio}`);
+      }
+    }
+
+    if (report.smartMoney.buySell) {
+      const bs = report.smartMoney.buySell;
+      const sentiment = bs.netFlowUsd >= 0 ? 'bullish' : 'bearish';
+      lines2.push(`SM DEX: ${formatUsd(bs.boughtVolumeUsd)} bought / ${formatUsd(bs.soldVolumeUsd)} sold (${sentiment})`);
+    }
+
+    if (lines2.length > 1) {
+      parts.push(fitTweet(lines2.join('\n')));
+    }
   }
 
-  if (lines2.length > 1) {
-    tweets.push(fitTweet(lines2.join('\n')));
-  }
-
-  // --- Tweet 3: Top buyers/sellers (if any) ---
+  // --- Part 3: Top buyers/sellers (if any) ---
   const lines3: string[] = [];
   if (report.smartMoney.topBuyers.length > 0) {
     lines3.push(`${sym} top buyers:`);
@@ -454,10 +470,10 @@ export function toTweetText(report: TokenReport): string[] {
   }
 
   if (lines3.length > 0) {
-    tweets.push(fitTweet(lines3.join('\n')));
+    parts.push(fitTweet(lines3.join('\n')));
   }
 
-  return tweets;
+  return parts;
 }
 
 /**

@@ -42,6 +42,29 @@ interface CoinGeckoMarketData {
 }
 
 /**
+ * Well-known native token addresses → CoinGecko coin IDs.
+ * Handles tokens that come from watchlist/external sources without coingeckoId set.
+ */
+const NATIVE_CG_IDS: Record<string, string> = {
+  'ethereum:0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee': 'ethereum',
+  'ethereum:0x2260fac5e5542a773aa44fbcfedf7c193bc2c599': 'bitcoin',       // WBTC
+  'solana:So11111111111111111111111111111111111111112': 'solana',
+  'bnb:0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee': 'binancecoin',
+  'avalanche:0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee': 'avalanche-2',
+  'polygon:0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee': 'matic-network',
+  'fantom:0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee': 'fantom',
+  'hyperevm:0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee': 'hyperliquid',
+  'tron:0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee': 'tron',
+  'mantle:0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee': 'mantle',
+  'sonic:0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee': 'sonic-3',
+  'sei:0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee': 'sei-network',
+  'monad:0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee': 'monad',
+  'ton:0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee': 'the-open-network',
+  'sui:0x2::sui::SUI': 'sui',
+  'near:wrap.near': 'near',
+};
+
+/**
  * Fetch market data from CoinGecko for a token.
  * For native tokens with a coingeckoId, uses the /simple/price endpoint (by coin ID).
  * For contract tokens, uses the /simple/token_price endpoint (by address).
@@ -49,9 +72,10 @@ interface CoinGeckoMarketData {
 async function fetchCoinGeckoData(
   token: ResolvedToken
 ): Promise<CoinGeckoMarketData | null> {
-  // If we have a CoinGecko coin ID (native tokens), use the simpler /simple/price endpoint
-  if (token.coingeckoId) {
-    return fetchCoinGeckoByCoinId(token.coingeckoId);
+  // Check explicit coingeckoId first, then fallback to well-known native addresses
+  const cgId = token.coingeckoId || NATIVE_CG_IDS[`${token.chain}:${token.address}`];
+  if (cgId) {
+    return fetchCoinGeckoByCoinId(cgId);
   }
 
   // Otherwise look up by contract address on the chain's platform

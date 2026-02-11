@@ -10,6 +10,7 @@ export interface ResolvedToken {
   symbol: string;
   chain: string;
   address: string;
+  coingeckoId?: string; // For native tokens where CoinGecko can't look up by contract
 }
 
 export interface FlowSegment {

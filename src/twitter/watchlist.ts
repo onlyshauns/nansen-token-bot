@@ -23,7 +23,7 @@ const WATCHLIST: ResolvedToken[] = [
   // L2s / Alt-L1s
   { name: 'Arbitrum', symbol: 'ARB', chain: 'arbitrum', address: '0x912ce59144191c1204e64559fe8253a0e49e6548' },
   { name: 'Optimism', symbol: 'OP', chain: 'optimism', address: '0x4200000000000000000000000000000000000042' },
-  { name: 'Hyperliquid', symbol: 'HYPE', chain: 'arbitrum', address: '0x6249a78e4c8c89d04c70f28d6e9a62a94a3fbce3' },
+  { name: 'Hyperliquid', symbol: 'HYPE', chain: 'hyperevm', address: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' },
   { name: 'Sui', symbol: 'SUI', chain: 'sui', address: '0x2::sui::SUI' },
   { name: 'Avalanche', symbol: 'AVAX', chain: 'avalanche', address: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' },
 

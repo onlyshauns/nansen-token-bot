@@ -42,10 +42,61 @@ interface CoinGeckoMarketData {
 }
 
 /**
- * Fetch market data from CoinGecko for a token by chain+address.
- * Tries the simple endpoint first (fast), then the detailed endpoint (FDV, etc.)
+ * Fetch market data from CoinGecko for a token.
+ * For native tokens with a coingeckoId, uses the /simple/price endpoint (by coin ID).
+ * For contract tokens, uses the /simple/token_price endpoint (by address).
  */
 async function fetchCoinGeckoData(
+  token: ResolvedToken
+): Promise<CoinGeckoMarketData | null> {
+  // If we have a CoinGecko coin ID (native tokens), use the simpler /simple/price endpoint
+  if (token.coingeckoId) {
+    return fetchCoinGeckoByCoinId(token.coingeckoId);
+  }
+
+  // Otherwise look up by contract address on the chain's platform
+  return fetchCoinGeckoByContract(token.chain, token.address);
+}
+
+/**
+ * Fetch market data by CoinGecko coin ID (for native tokens like ETH, BTC, HYPE).
+ */
+async function fetchCoinGeckoByCoinId(coinId: string): Promise<CoinGeckoMarketData | null> {
+  try {
+    const res = await fetch(
+      `https://api.coingecko.com/api/v3/simple/price?ids=${coinId}` +
+      `&vs_currencies=usd` +
+      `&include_market_cap=true` +
+      `&include_24hr_vol=true` +
+      `&include_24hr_change=true`
+    );
+    if (!res.ok) return null;
+
+    const data = await res.json() as Record<string, {
+      usd?: number;
+      usd_market_cap?: number;
+      usd_24h_vol?: number;
+      usd_24h_change?: number;
+    }>;
+    const entry = data[coinId];
+    if (entry && entry.usd) {
+      return {
+        priceUsd: entry.usd ?? null,
+        marketCapUsd: entry.usd_market_cap && entry.usd_market_cap > 0 ? entry.usd_market_cap : null,
+        fdvUsd: null,
+        volume24hUsd: entry.usd_24h_vol && entry.usd_24h_vol > 0 ? entry.usd_24h_vol : null,
+        priceChange24h: entry.usd_24h_change ?? null,
+      };
+    }
+  } catch { /* fall through */ }
+  return null;
+}
+
+/**
+ * Fetch market data by contract address on a CoinGecko platform.
+ * Tries the simple endpoint first (fast), then the detailed endpoint (FDV, etc.)
+ */
+async function fetchCoinGeckoByContract(
   chain: string,
   address: string
 ): Promise<CoinGeckoMarketData | null> {
@@ -127,7 +178,7 @@ export async function buildTokenReport(
     nansen.getTokenInfo(token.chain, token.address, '1d'),
     nansen.getFlowIntelligence(token.chain, token.address, '1d'),
     nansen.getSmartMoneyBuySell(token.chain, token.address),
-    fetchCoinGeckoData(token.chain, token.address),
+    fetchCoinGeckoData(token),
   ]);
 
   const tokenInfo = tokenInfoResult.status === 'fulfilled' ? tokenInfoResult.value : null;

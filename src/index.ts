@@ -3,7 +3,6 @@ import { NansenClient } from './nansen/client.js';
 import { AnthropicClient } from './llm/client.js';
 import { startTelegram } from './platforms/telegram.js';
 import { startDiscord } from './platforms/discord.js';
-import { startTwitter } from './platforms/twitter.js';
 
 async function main() {
   const tasks: Promise<void>[] = [];
@@ -24,26 +23,32 @@ async function main() {
   }
 
   // Twitter/X: requires Nansen + Anthropic + Twitter creds
+  // Dynamic import to avoid crashing Telegram/Discord if twitter-api-v2 has issues
   if (config.twitterApiKey && config.twitterApiSecret && config.twitterAccessToken && config.twitterAccessSecret) {
     if (config.nansenApiKey && config.anthropicApiKey) {
-      const nansen = new NansenClient(config.nansenApiKey);
-      const anthropic = new AnthropicClient(config.anthropicApiKey);
-      tasks.push(startTwitter(
-        {
-          apiKey: config.twitterApiKey,
-          apiSecret: config.twitterApiSecret,
-          accessToken: config.twitterAccessToken,
-          accessSecret: config.twitterAccessSecret,
-        },
-        nansen,
-        anthropic,
-        {
-          tier: config.twitterTier,
-          scanIntervalHours: config.twitterScanIntervalHours,
-          mentionPollMinutes: config.twitterMentionPollMinutes,
-          dryRun: config.twitterDryRun,
-        }
-      ));
+      try {
+        const { startTwitter } = await import('./platforms/twitter.js');
+        const nansen = new NansenClient(config.nansenApiKey);
+        const anthropic = new AnthropicClient(config.anthropicApiKey);
+        tasks.push(startTwitter(
+          {
+            apiKey: config.twitterApiKey,
+            apiSecret: config.twitterApiSecret,
+            accessToken: config.twitterAccessToken,
+            accessSecret: config.twitterAccessSecret,
+          },
+          nansen,
+          anthropic,
+          {
+            tier: config.twitterTier,
+            scanIntervalHours: config.twitterScanIntervalHours,
+            mentionPollMinutes: config.twitterMentionPollMinutes,
+            dryRun: config.twitterDryRun,
+          }
+        ));
+      } catch (error) {
+        console.error('[Main] Failed to load Twitter module:', error);
+      }
     } else {
       console.warn('[Main] TWITTER credentials set but missing NANSEN_API_KEY or ANTHROPIC_API_KEY — Twitter bot disabled');
     }

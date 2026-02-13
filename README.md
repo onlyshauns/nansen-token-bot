@@ -157,6 +157,186 @@ Symbols are resolved via **CoinGecko** first (free, no key needed). If CoinGecko
 | Plasma | `plasma` | ETH |
 | IOTA EVM | `iota` | IOTA |
 
+## Examples
+
+### Telegram
+
+**Input:** `$PEPE`
+
+```
+Pepe (PEPE) 🔴 -1.43% (24H)
+🔗 Chain: ETH
+CA: 0x6982508145454ce325ddbe47a25d4ec3d2311933
+
+💰 Price: $0.000005123 (-1.43%)
+🏛️ Mcap: $2.15B
+📈 24h Vol: $726.5K
+💧 Liq: $15.13M
+🕒 Age: 2y 10mo
+👥 Holders: 385,154
+
+🔄 Holder Flows (24h)
+🏦 Exchanges: $803.0K OUT ⬇️ (0.9x avg, 142w)
+📈 Top PnL Traders: $12.3K IN ⬆️ (0.9x avg, 8w)
+🆕 Fresh Wallets: $257.6K IN ⬆️ (0.7x avg, 53w)
+💱 DEX Activity: 🟢 $339.5K bought / 🔴 $309.5K sold
+
+🟢 Top Buyers
+1. Wintermute Market Making — $255.6K
+2. DEX/CEX Trading Bot — $34.2K
+
+🔴 Top Sellers
+1. MEV: Bot — $102.6K
+2. High Balance — $62.1K
+
+View on Nansen
+```
+
+**Input:** `$HYPE`
+
+```
+Hyperliquid (HYPE) 🟢 +4.21% (24H)
+🔗 Chain: HYPE
+CA: 0x...
+
+💰 Price: $26.84 (+4.21%)
+🏛️ Mcap: $8.96B
+📈 24h Vol: $12.5M
+💧 Liq: $6.42M
+🕒 Age: 6mo
+👥 Holders: 48,219
+
+🔄 Holder Flows (24h)
+🤓 Smart Traders: $1.2M IN ⬆️ (2.1x avg, 85w)
+🐋 Whales: $3.4M OUT ⬇️ (1.5x avg, 12w)
+🏦 Exchanges: $2.1M IN ⬆️ (1.8x avg, 201w)
+
+🟢 Top Buyers
+1. Smart Trader — $420.5K
+2. All Time Smart Trader — $312.1K
+
+🔴 Top Sellers
+1. Whale — $1.2M
+2. Fund — $890.3K
+
+View on Nansen
+```
+
+**Input:** `$SOL` (native token)
+
+```
+Solana (SOL) 🟢 +2.15% (24H)
+🔗 Chain: SOL
+CA: so11111111111111111111111111111111111111112
+
+💰 Price: $176.42 (+2.15%)
+🏛️ Mcap: $85.6B
+📈 24h Vol: $3.2M
+💧 Liq: $45.2M
+
+🔄 Holder Flows (24h)
+🏦 Exchanges: $15.2M OUT ⬇️ (1.2x avg, 3201w)
+🐋 Whales: $8.7M IN ⬆️ (1.8x avg, 45w)
+🤓 Smart Traders: $2.1M IN ⬆️ (1.5x avg, 312w)
+
+🟢 Top Buyers
+1. Fund — $1.8M
+2. All Time Smart Trader — $450.2K
+
+View on Nansen
+```
+
+**Input:** `0x6982508145454ce325ddbe47a25d4ec3d2311933` (contract address)
+
+Same output as `$PEPE` — the bot auto-detects chain from the address format.
+
+### Twitter/X
+
+**Scheduled tweet** (auto-generated from watchlist scan):
+
+```
+$HYPE | $26.84 (+4.21%)
+Mcap: $8.96B
+24h Vol: $12.5M
+Liq: $6.42M
+
+$HYPE flows (24h):
+Smart Traders: $1.2M IN (2.1x avg)
+Whales: $3.4M OUT (1.5x avg)
+Exchanges: $2.1M IN (1.8x avg)
+SM DEX: $420.5K bought / $312.1K sold (bullish)
+
+$HYPE top buyers:
+Smart Trader — $420.5K
+All Time Smart Trader — $312.1K
+
+Top sellers:
+Whale — $1.2M
+Fund — $890.3K
+```
+
+**Mention reply** — `@nansen_intern $PEPE`: Same token analysis as above, formatted as a tweet thread (≤280 chars per tweet).
+
+**Keyword reply** — `@nansen_intern what are whales doing on Solana?`: Bot finds top-volume Solana token with whale activity and tweets the analysis.
+
+**Product reply** — `@nansen_intern where can I see smart alerts?`: Bot replies with a link to the relevant Nansen product page.
+
+### Discord
+
+**Input:** `/token PEPE`
+
+The bot replies with a rich embed containing the same data sections:
+
+| Field | Value |
+|-------|-------|
+| **Title** | Pepe (PEPE) 🔴 -1.43% (24H) |
+| **Chain** | ⬠ Ethereum |
+| 💰 Price | $0.000005123 (-1.43%) |
+| 🏛️ Mcap | $2.15B |
+| 📈 24h Vol | $726.5K |
+| 💧 Liq | $15.13M |
+| 🕒 Age | 2y 10mo |
+| 👥 Holders | 385,154 |
+| 🔄 Holder Flows | Exchanges: $803.0K OUT ⬇️ (0.9x avg) |
+| 🟢 Top Buyers | 1. Wintermute Market Making — $255.6K |
+| 🔴 Top Sellers | 1. MEV: Bot — $102.6K |
+
+### Group Chat (Telegram)
+
+In group chats, mention the bot with a `$SYMBOL`:
+
+**Input:** `Hey @NansenAssistantBot what do you think about $PENGU?`
+
+The bot extracts `$PENGU`, ignores the conversational text, and replies with the full token analysis (same format as DM).
+
+**Input:** `Hey @NansenAssistantBot how's the market?` (no `$SYMBOL`)
+
+The bot replies with a witty AI-generated personality response (requires `ANTHROPIC_API_KEY`).
+
+### Chain Hints
+
+**Input:** `$PEPE SOL` — looks up PEPE on Solana (not Ethereum)
+
+**Input:** `$USDC ARB` — looks up USDC on Arbitrum
+
+**Input:** `$ETH BASE` — looks up WETH on Base
+
+### Error Cases
+
+**Input:** `$XYZNOTREAL`
+
+```
+❌ Could not look up 'XYZNOTREAL'
+No token found matching 'XYZNOTREAL'
+Try using the contract address directly.
+```
+
+**Input:** `$PEPE` (without API key set)
+
+```
+⚠️ No API key set. Send /setkey <your_key> in DM to get started.
+```
+
 ## Testing
 
 ```bash

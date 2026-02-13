@@ -138,7 +138,7 @@ export function isTokenQuery(text: string): boolean {
   return false;
 }
 
-const DOLLAR_SYMBOL_RE = /\$[A-Za-z]{2,10}(?:\s|$)/;
+const DOLLAR_SYMBOL_RE = /\$[A-Za-z]{2,10}(?=[\s?!.,;:)\]|}]|$)/;
 
 /**
  * Extract a token query from a message that may contain surrounding text.

@@ -398,6 +398,118 @@ src/
 - **Per-group allowlists** -- key owners control access per group
 - **Twitter tier limits** -- respects free/basic API rate limits
 
+## Twitter/X Setup Guide
+
+### Step 1: Create a Twitter Developer Account
+
+1. Go to [developer.x.com](https://developer.x.com) and sign in with the account the bot will tweet from
+2. Sign up for the **Free** tier (posting + mention reading included)
+
+### Step 2: Create a Project & App
+
+1. In the Developer Portal → **Projects & Apps** → **+ Add Project**
+2. Create an **App** inside the project
+3. Set **User Authentication Settings**:
+   - **App permissions**: **Read and Write** (required for posting tweets and reading mentions)
+   - **Type of App**: **Web App, Automated App or Bot**
+   - **Callback URL**: `https://localhost` (not used, but required)
+   - **Website URL**: any URL (e.g. your GitHub repo)
+
+### Step 3: Generate Keys & Tokens
+
+In your app → **Keys and Tokens**:
+
+| Portal Label | `.env` Variable |
+|-------------|-----------------|
+| API Key (Consumer Key) | `TWITTER_API_KEY` |
+| API Key Secret | `TWITTER_API_SECRET` |
+| Access Token | `TWITTER_ACCESS_TOKEN` |
+| Access Token Secret | `TWITTER_ACCESS_SECRET` |
+
+> **Important:** If you change app permissions after generating tokens, you must **regenerate** the Access Token & Secret. Old tokens will not inherit updated permissions.
+
+### Step 4: Configure `.env`
+
+```bash
+# Twitter/X credentials (all 4 required)
+TWITTER_API_KEY=xxxxxxxxxxxxxxxxxxxxxxxxx
+TWITTER_API_SECRET=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+TWITTER_ACCESS_TOKEN=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+TWITTER_ACCESS_SECRET=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+# Also required for Twitter (shared with other platforms)
+NANSEN_API_KEY=your_nansen_api_key       # Token data
+ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxxx   # Tweet generation via Claude
+
+# Twitter config (all optional, defaults shown)
+TWITTER_TIER=free                # 'free' or 'basic'
+TWITTER_SCAN_INTERVAL_HOURS=6    # How often to scan watchlist
+TWITTER_MENTION_POLL_MINUTES=15  # How often to check mentions (overridden to 8h on free tier)
+TWITTER_DRY_RUN=true             # Log tweets to console instead of posting
+```
+
+### Step 5: Test in Dry Run
+
+Start with `TWITTER_DRY_RUN=true`:
+
+```bash
+npm run dev
+```
+
+Expected console output:
+```
+[Twitter] Authenticated as @nansen_intern (id: 123456789)
+[Twitter] Tier: free | Scan: every 6h | Mentions: every 15min | DryRun: true
+[Twitter] Starting scheduled scan... (Tweets: 0/50/day, 0/1500/month | Reads: 0/3/day, 0/100/month)
+[Twitter] Scanning watchlist (25 tokens)...
+[Twitter DRY RUN] Would tweet (247 chars):
+$HYPE | $26.84 (+4.21%)
+Mcap: $8.96B
+24h Vol: $12.5M
+...
+```
+
+### Step 6: Go Live
+
+Set `TWITTER_DRY_RUN=false` (or remove it) and restart/redeploy.
+
+### How It Works
+
+**Scheduled scan loop** (default: every 6 hours):
+1. Scans a hardcoded watchlist of 25 tokens (`src/twitter/watchlist.ts`)
+2. Builds a `TokenReport` for each token (parallel Nansen API calls)
+3. Scores each by "tweetworthiness" — SM net flow, whale activity, exchange flows, price moves
+4. Filters out tokens tweeted in the last 24h
+5. Sends the top result to Claude to generate a natural tweet
+6. Posts the tweet (or logs in dry run)
+
+**Mention poll loop** (default: every 8h on free tier):
+1. Fetches new @mentions since the last poll
+2. For each mention, runs three-layer detection:
+   - **Layer 1 — Token lookup**: `$SYMBOL` or contract address → full token analysis reply
+   - **Layer 2 — Keyword detection**: keyword + chain name → finds top token for that chain → analysis reply
+   - **Layer 3 — Product routing**: Nansen product/feature question → Claude-generated reply with product link
+3. If no match, skips the mention
+
+**Rate limits** (automatically enforced):
+
+| Tier | Tweets/day | Tweets/month | Reads/day | Reads/month | Mention poll |
+|------|-----------|-------------|----------|------------|--------------|
+| Free | 50 | 1,500 | 3 | 100 | Every 8h |
+| Basic ($100/mo) | 100 | 3,000 | 333 | 10,000 | Configurable |
+
+### Watchlist
+
+The watchlist (`src/twitter/watchlist.ts`) contains 25 pre-resolved tokens across categories:
+
+- **Blue chips**: ETH, BTC (WBTC), SOL, BNB
+- **DeFi**: LINK, UNI, AAVE, LDO, MKR, PENDLE
+- **L2s / Alt-L1s**: ARB, OP, HYPE, SUI, AVAX
+- **Memecoins**: PEPE, DOGE, WIF, BONK, FLOKI
+- **Trending**: RNDR, VIRTUAL, ONDO, ENA, JUP
+
+To add tokens, edit the `WATCHLIST` array — each entry needs `name`, `symbol`, `chain`, and `address` (pre-resolved to skip CoinGecko lookups during scans).
+
 ## Deploying to Railway
 
 1. Push code to GitHub
@@ -406,11 +518,44 @@ src/
 4. Set environment variables (see above)
 5. Deploy -- Railway auto-builds and starts all configured platforms
 
+> **Note:** The bot has two GitHub remotes — `origin` (private: `Nansen-Intern-Bot`) and `public` (`nansen-token-bot`). Railway is connected to the **public** remote. Always `git push public main` to trigger Railway auto-deploy.
+
 ## Data Sources
 
 - **[Nansen](https://nansen.ai)** -- Token data, holder flows, smart money activity, exchange flows, token resolution fallback
 - **[CoinGecko](https://coingecko.com)** -- Primary token resolution (symbol to address) and price data
 - **[Anthropic Claude](https://anthropic.com)** -- Tweet generation and personality replies
+
+## Developer Notes
+
+Context for agents or contributors continuing development on this codebase.
+
+### Key Patterns
+
+- **Platform-agnostic core**: `src/core/` handles parsing, resolution, and report building. Platform-specific code lives in `src/platforms/`. Adding a new platform means writing a new platform handler that calls `parseUserInput()` → `resolveToken()` → `buildTokenReport()` → render.
+- **Token resolution pipeline**: `resolveToken()` in `src/core/resolver.ts` tries CoinGecko first (free, no key needed), then falls back to Nansen's `/tgm/token-screener` endpoint. This two-layer approach ensures both established tokens (CoinGecko) and newer/smaller tokens (Nansen) are found.
+- **Nansen API client**: `src/nansen/client.ts` wraps all Nansen TGM API calls. All endpoints use the `/tgm/` prefix. The client has built-in retry logic and error handling. The `searchToken()` method is the fallback resolver.
+- **Grammy middleware chain (Telegram)**: Handlers in `telegram.ts` execute in registration order. The token detection handler calls `next()` to pass to the personality handler if no token is found. The `isTokenQuery()` gate function in `parser.ts` must match at least as broadly as `extractTokenQuery()` — a past bug where the gate regex was stricter than the extractor caused `$SYMBOL?` (with punctuation) to skip token lookup.
+- **Two GitHub remotes**: `origin` → `onlyshauns/Nansen-Intern-Bot` (private), `public` → `onlyshauns/nansen-token-bot` (public, connected to Railway). Push to `public` to trigger deploy.
+
+### API Dependencies
+
+| Service | Key Required | Used For |
+|---------|-------------|----------|
+| Nansen TGM API | `NANSEN_API_KEY` | Token data, flows, smart money, holder info, token resolution fallback |
+| CoinGecko | None (free) | Primary symbol → address resolution, price data |
+| Anthropic Claude | `ANTHROPIC_API_KEY` | Tweet generation, Telegram personality replies, product routing replies |
+| Twitter API v2 | 4 keys (see above) | Posting tweets, reading mentions |
+| Telegram Bot API | `TELEGRAM_BOT_TOKEN` | Grammy bot framework |
+| Discord API | `DISCORD_BOT_TOKEN` + `DISCORD_CLIENT_ID` | discord.js slash commands |
+
+### Common Pitfalls
+
+- **Nansen token screener `order_by`** expects `[{ field: 'volume', direction: 'desc' }]` (array of objects), not a string.
+- **Nansen screener does not return `token_name`** — the resolver sets name to `symbol.toUpperCase()`, which gets overwritten later by `buildTokenReport` if CoinGecko/Nansen has the real name.
+- **`DOLLAR_SYMBOL_RE`** in `parser.ts` uses a lookahead `(?=[\s?!.,;:)\]|}]|$)` to allow trailing punctuation. If you change this regex, make sure it stays at least as permissive as the capture regex in `extractTokenQuery()`.
+- **Railway deploys from `public` remote**, not `origin`. Pushing to `origin` only updates the private repo.
+- **Free tier Twitter** overrides the mention poll interval to 8 hours regardless of `TWITTER_MENTION_POLL_MINUTES` to conserve the 3 reads/day limit.
 
 ## License
 
